@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from thenoise.models import AnimaModel, Krea2Model, resolve
+from thenoise.models import AnimaModel, Krea2Model, ZImageModel, resolve
 
 
 class _FakeHandle:
@@ -44,6 +44,22 @@ _KREA2_KEYS = [
     "txtmlp.1.weight",
 ]
 
+_ZIMAGE_KEYS = [
+    "x_embedder.weight",
+    "cap_embedder.1.weight",
+    "context_refiner.0.attention_norm1.weight",
+    "t_embedder.mlp.0.weight",
+    "layers.0.attention_norm1.weight",
+]
+
+# Z-Image repackaged under ComfyUI's generic "model.diffusion_model." wrapper.
+_ZIMAGE_WRAPPED_KEYS = [
+    "model.diffusion_model.x_embedder.weight",
+    "model.diffusion_model.cap_embedder.1.weight",
+    "model.diffusion_model.context_refiner.0.attention_norm1.weight",
+    "model.diffusion_model.layers.0.attention_norm1.weight",
+]
+
 
 def test_anima_detect_true():
     assert AnimaModel.detect(_FakeHandle(_ANIMA_KEYS)) is True
@@ -64,6 +80,26 @@ def test_krea2_rejects_anima_keys():
 
 def test_anima_rejects_krea2_keys():
     assert AnimaModel.detect(_FakeHandle(_KREA2_KEYS)) is False
+
+
+def test_zimage_detect_true():
+    assert ZImageModel.detect(_FakeHandle(_ZIMAGE_KEYS)) is True
+
+
+def test_zimage_detect_true_on_wrapped_repackaged_keys():
+    assert ZImageModel.detect(_FakeHandle(_ZIMAGE_WRAPPED_KEYS)) is True
+
+
+def test_zimage_rejects_anima_keys():
+    assert ZImageModel.detect(_FakeHandle(_ANIMA_KEYS)) is False
+
+
+def test_zimage_rejects_krea2_keys():
+    assert ZImageModel.detect(_FakeHandle(_KREA2_KEYS)) is False
+
+
+def test_anima_rejects_zimage_keys():
+    assert AnimaModel.detect(_FakeHandle(_ZIMAGE_KEYS)) is False
 
 
 # A Krea2 checkpoint repackaged under ComfyUI's generic "model.diffusion_model."
@@ -107,6 +143,12 @@ def test_resolve_krea2(tmp_path):
     p = tmp_path / "krea2.safetensors"
     _write_safetensors(p, _KREA2_KEYS)
     assert resolve(str(p)) is Krea2Model
+
+
+def test_resolve_zimage(tmp_path):
+    p = tmp_path / "zimage.safetensors"
+    _write_safetensors(p, _ZIMAGE_WRAPPED_KEYS)
+    assert resolve(str(p)) is ZImageModel
 
 
 def test_resolve_unknown_raises(tmp_path):
