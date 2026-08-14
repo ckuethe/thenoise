@@ -1,17 +1,17 @@
 """SesquiLSR latent upscaler, vendored for thenoise.
 
-Both models (Krea2, Anima) currently use the shared Qwen-Image VAE, so only the
-Wan21 upscaler weights are committed (``weights/upscaler_Wan21.safetensors``,
-~6MB bf16). ``load_upscaler`` takes a latent-format name and selects the
-adaptor factory + weight file from ``_UPSCALER_FORMATS``; formats without
-committed weights raise. See ``inference_adaptors.make_*`` for the available
-formats.
+Krea2 and Anima use the shared Qwen-Image VAE (Wan21 z-score latent format), and
+Z-Image uses the Flux VAE (affine shift/scale latent format). The Wan21 and Flux
+upscaler weights are committed (``weights/*.safetensors``, ~6MB bf16 each).
+``load_upscaler`` takes a latent-format name and selects the adaptor factory +
+weight file from ``_UPSCALER_FORMATS``; formats without committed weights raise.
+See ``inference_adaptors.make_*`` for the available formats.
 
 Usage:
-    model, adaptor = load_upscaler("wan21", device="cuda", dtype=torch.bfloat16)
-    raw = adaptor.to_vae_latent(latent)          # normalized -> raw VAE latent
+    model, adaptor = load_upscaler("flux", device="cuda", dtype=torch.bfloat16)
+    raw = adaptor.to_vae_latent(latent)          # pipeline -> raw VAE latent
     up  = model(raw, (2*h, 2*w))                 # 2x latent upscale
-    out = adaptor.from_vae_latent(up)            # raw -> normalized
+    out = adaptor.from_vae_latent(up)            # raw -> pipeline latent
 """
 from __future__ import annotations
 
@@ -39,12 +39,13 @@ logger = logging.getLogger(__name__)
 _WEIGHT_DIR = Path(__file__).resolve().parent / "weights"
 
 # Latent format name -> (adaptor factory, weight filename, raw-VAE channel count).
-# Only the Wan21 z-score weights are committed so far; a format must be added
-# here together with its upscaler weights before it can be selected.
+# A format must be added here together with its upscaler weights before it can
+# be selected. ``wan21`` (Qwen-Image VAE: Krea2/Anima) and ``flux`` (Flux VAE:
+# Z-Image) weights are committed.
 _UPSCALER_FORMATS = {
     "wan21": (make_wan21, "upscaler_Wan21.safetensors", 16),
+    "flux":  (make_flux,  "upscaler_flux.safetensors", 16),
     # "sdxl":     (make_sdxl,     "upscaler_sdxl.safetensors", 4),  # not yet committed
-    # "flux":     (make_flux,     "upscaler_flux.safetensors", 16),  # not yet committed
     # "flux2":    (make_flux2,    "upscaler_flux2.safetensors", 32),  # not yet committed
     # "ideogram4":(make_ideogram4, "upscaler_ideogram4.safetensors", 32),  # not yet committed
 }

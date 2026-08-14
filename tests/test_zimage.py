@@ -60,3 +60,36 @@ def test_find_zimage_tokenizer_dir(tmp_path):
 def test_find_zimage_tokenizer_dir_returns_none_without_tokenizer(tmp_path):
     te = tmp_path / "split_files" / "text_encoders" / "qwen_3_4b.safetensors"
     assert find_zimage_tokenizer_dir(str(te)) is None
+
+
+def test_zimage_upscale_format_is_flux():
+    # Z-Image uses the Flux VAE -> the affine shift/scale latent format is registered.
+    from thenoise.upscale import _UPSCALER_FORMATS
+
+    assert "flux" in _UPSCALER_FORMATS
+    assert _UPSCALER_FORMATS["flux"][1] == "upscaler_flux.safetensors"
+    # And the adapter declares the flux format for its upscale path.
+    assert ZImageModel._upscale_format is not None
+
+
+def test_flux_upscaler_loads_and_runs():
+    import torch
+
+    from thenoise.upscale import load_upscaler
+
+    model, adaptor = load_upscaler("flux", device="cpu", dtype=torch.bfloat16)
+    # Canonical Z-Image (Flux) latent -> raw VAE latent -> 2x upscale -> back.
+    z = torch.randn(1, 16, 8, 8)
+    raw = adaptor.to_vae_latent(z).to(torch.bfloat16)
+    out = model(raw, (16, 16))
+    z_up = adaptor.from_vae_latent(out.float())
+    assert z_up.shape == (1, 16, 16, 16)
+
+
+def test_load_upscaler_rejects_unknown_format():
+    import pytest
+
+    from thenoise.upscale import load_upscaler
+
+    with pytest.raises(ValueError):
+        load_upscaler("not_a_real_format")

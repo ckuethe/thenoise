@@ -212,7 +212,9 @@ Available variants include `turbo-v1.0` (fewest steps), `aesthetic-v1.1`, and
 This fetches the single-file bf16 Turbo DiT (~12 GB), the Flux VAE (`ae.safetensors`),
 and the Qwen3-4B text encoder (`qwen_3_4b.safetensors`, ~8 GB) — all from
 `Comfy-Org/z_image_turbo` — plus the tokenizer (`tokenizer/`) from
-`Tongyi-MAI/Z-Image-Turbo`.
+`Tongyi-MAI/Z-Image-Turbo`. It also downloads the SesquiLSR **Flux** latent upscaler
+and converts it fp32 → bf16 into the package's `thenoise/upscale/weights/` directory
+(used by `--upscale`; the `--vae` for Z-Image is the Flux VAE).
 
 Z-Image-Turbo is a distilled flow model: **8 denoising steps, CFG off** (the default
 `guidance_scale` is 1, ComfyUI's "off" convention). It uses the Flux VAE, so it has

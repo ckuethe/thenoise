@@ -207,6 +207,10 @@ class ZImageModel(DiffusionModel):
         align = self._VAE_SCALE * self.dit.patch_size
         return round_up(width, align), round_up(height, align)
 
+    def _upscale_format(self) -> str:
+        """Flux VAE -> affine shift/scale latent format."""
+        return "flux"
+
     def percent_to_sigma(self, percent: float) -> float:
         """Percent -> sigma (used by the ER-SDE solver to nudge sigma_0 below 1).
 
