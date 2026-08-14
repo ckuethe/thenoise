@@ -8,11 +8,13 @@
 # the Apache-2.0 License.
 
 import math
+import os
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from thenoise.utils.attention import AttentionParams, attention
 from thenoise.utils.setup_logging import setup_logging
 
 setup_logging()
@@ -23,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 ADALN_EMBED_DIM = 256
 SEQ_MULTI_OF = 32
+
+#: torch.compile(fullgraph=True) on the transformer block by default; set
+#: ``ZIMAGE_NO_COMPILE=1`` to fall back to eager execution (e.g. if a graph-break or
+#: a torch version regression appears on a given ROCm build).
+_COMPILE = os.environ.get("ZIMAGE_NO_COMPILE", "").lower() not in ("1", "true", "yes", "on")
 
 
 class RMSNorm(nn.Module):
@@ -96,6 +103,8 @@ class Attention(nn.Module):
         dim = hidden_states.shape[-1]
         q, k, v = self.qkv(hidden_states).split([dim, dim, dim], dim=-1)
 
+        # q/k/v are [B, L, H, D]; the shared attention() util handles the SDPA
+        # [B, H, L, D] transpose and (future) attention-backend swapping.
         query = q.unflatten(-1, (self.n_heads, -1))
         key = k.unflatten(-1, (self.n_heads, -1))
         value = v.unflatten(-1, (self.n_heads, -1))
@@ -107,22 +116,13 @@ class Attention(nn.Module):
             query = self._apply_rotary_emb(query, freqs_cis)
             key = self._apply_rotary_emb(key, freqs_cis)
 
-        dtype = query.dtype
-        query, key = query.to(dtype), key.to(dtype)
-
+        params = None
         if attention_mask is not None and attention_mask.ndim == 2:
-            attention_mask = attention_mask[:, None, None, :]
+            # SDPA expects [B, H, L, S]; expand the [B, S] key-padding mask to
+            # [B, 1, 1, S] (bool: True = attend).
+            params = AttentionParams(attention_mask=attention_mask[:, None, None, :])
 
-        # SDPA expects [batch, heads, seq, head_dim]; transpose from
-        # [batch, seq, heads, head_dim] and back.
-        query = query.transpose(1, 2)
-        key = key.transpose(1, 2)
-        value = value.transpose(1, 2)
-
-        hidden_states = F.scaled_dot_product_attention(
-            query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False
-        )
-        hidden_states = hidden_states.transpose(1, 2).reshape(query.shape[0], query.shape[2], -1).to(dtype)
+        hidden_states = attention([query, key, value], attn_params=params, drop_rate=0.0)
         return self.out(hidden_states)
 
 
@@ -171,6 +171,14 @@ class ZImageTransformerBlock(nn.Module):
             x = x + self.attention_norm2(attn_out)
             x = x + self.ffn_norm2(self.feed_forward(self.ffn_norm1(x)))
         return x
+
+
+if _COMPILE:
+    # The block is invoked once per layer per denoise step, so it is the highest-value
+    # target for torch.compile (fullgraph=True forces the whole block into one graph).
+    # Guarded by the ZIMAGE_NO_COMPILE env opt-out.
+    logger.info("Z-Image: enabling torch.compile(fullgraph=True) on transformer blocks")
+    ZImageTransformerBlock.forward = torch.compile(fullgraph=True)(ZImageTransformerBlock.forward)
 
 
 class FinalLayer(nn.Module):

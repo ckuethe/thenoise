@@ -209,24 +209,28 @@ Available variants include `turbo-v1.0` (fewest steps), `aesthetic-v1.1`, and
 .venv/bin/python scripts/download_zimage.py --out ./models/zimage
 ```
 
-This fetches the single-file bf16 Turbo DiT (~12 GB) and Flux VAE (`ae.safetensors`)
-from `Comfy-Org/z_image_turbo`, plus the Qwen3-4B text encoder (`text_encoder/`,
-~8 GB) and its tokenizer (`tokenizer/`) from `Tongyi-MAI/Z-Image-Turbo`.
+This fetches the single-file bf16 Turbo DiT (~12 GB), the Flux VAE (`ae.safetensors`),
+and the Qwen3-4B text encoder (`qwen_3_4b.safetensors`, ~8 GB) — all from
+`Comfy-Org/z_image_turbo` — plus the tokenizer (`tokenizer/`) from
+`Tongyi-MAI/Z-Image-Turbo`.
 
-Z-Image-Turbo is a distilled flow model: **8 denoising steps, no CFG** (the default
-`guidance_scale` is 0). It uses the Flux VAE, so it has its own `--vae`.
+Z-Image-Turbo is a distilled flow model: **8 denoising steps, CFG off** (the default
+`guidance_scale` is 1, ComfyUI's "off" convention). It uses the Flux VAE, so it has
+its own `--vae`.
 
 ```bash
 ./thenoise.sh generate \
   --dit ./models/zimage/split_files/diffusion_models/z_image_turbo_bf16.safetensors \
   --vae ./models/zimage/split_files/vae/ae.safetensors \
-  --text-encoder ./models/zimage/text_encoder \
+  --text-encoder ./models/zimage/split_files/text_encoders/qwen_3_4b.safetensors \
   --prompt "a fox walking in the snow" \
   --out /tmp/zimage.png
 ```
 
-> **Note:** `--text-encoder` points at the `text_encoder/` *directory* (the tokenizer
-> is read from the sibling `tokenizer/` directory automatically).
+> **Note:** `--text-encoder` is the *single-file* Qwen3 checkpoint (the config is
+> vendored, so no `config.json` is needed). The tokenizer is read from a local
+> `tokenizer/` directory if one is found under the download root, otherwise it is
+> fetched from the Hub.
 
 ---
 
@@ -266,13 +270,13 @@ Krea 2:
   --host 127.0.0.1 --port 8000
 ```
 
-Z-Image-Turbo (uses the Flux VAE; the text encoder is a directory):
+Z-Image-Turbo (uses the Flux VAE; the text encoder is a single file):
 
 ```bash
 ./thenoise.sh serve \
   --dit ./models/zimage/split_files/diffusion_models/z_image_turbo_bf16.safetensors \
   --vae ./models/zimage/split_files/vae/ae.safetensors \
-  --text-encoder ./models/zimage/text_encoder \
+  --text-encoder ./models/zimage/split_files/text_encoders/qwen_3_4b.safetensors \
   --host 127.0.0.1 --port 8000
 ```
 
@@ -362,7 +366,7 @@ If no model is loaded, `/text2image` returns HTTP 503.
 |------|----------|---------|-------------|
 | `--dit` | yes | — | Path to the DiT checkpoint (`.safetensors`) |
 | `--vae` | yes | — | Path to the VAE checkpoint (`.safetensors`) |
-| `--text-encoder` | yes | — | Path to the text encoder checkpoint (`.safetensors`, or a `text_encoder/` directory for Z-Image) |
+| `--text-encoder` | yes | — | Path to the text encoder checkpoint (`.safetensors`; single file for Z-Image) |
 | `--lora-dir` | no | — | Directory containing LoRA `.safetensors` files |
 | `--device` | no | `cuda` | Inference device (ROCm aliases `cuda` → `hip`) |
 

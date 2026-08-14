@@ -11,9 +11,12 @@ from typing import List, Optional
 
 import torch
 
-from thenoise.dit.zimage import models as zimage_models
 from thenoise.dit.zimage import sampling as zimage_sampling
-from thenoise.dit.zimage.utils import load_zimage_dit, load_zimage_text_encoder
+from thenoise.dit.zimage.utils import (
+    find_zimage_tokenizer_dir,
+    load_zimage_dit,
+    load_zimage_text_encoder,
+)
 from thenoise.models.base import (
     Conditioning,
     DiffusionModel,
@@ -29,9 +32,10 @@ logger = logging.getLogger(__name__)
 class ZImageModel(DiffusionModel):
     name = "zimage"
 
-    # Distilled Turbo defaults: 8 NFEs, no CFG, 1024x1024.
+    # Distilled Turbo defaults: 8 NFEs, no CFG (guidance 1 = "off", ComfyUI's
+    # convention), 1024x1024.
     DEFAULT_STEPS = 8
-    DEFAULT_GUIDANCE_SCALE = 0.0
+    DEFAULT_GUIDANCE_SCALE = 1.0
     DEFAULT_WIDTH = 1024
     DEFAULT_HEIGHT = 1024
 
@@ -45,7 +49,7 @@ class ZImageModel(DiffusionModel):
         """True if this handle is the Z-Image S3-DiT.
 
         Z-Image's distinctive blocks are the caption embedder (``cap_embedder.``),
-        the patch-embed ModuleDict (``all_x_embedder.``) and the context refiner
+        the plain patch embedder (``x_embedder.``) and the context refiner
         (``context_refiner.``). Keys are normalized first so repackaged checkpoints
         (``model.diffusion_model.`` / ``net.``) resolve identically.
         """
@@ -80,7 +84,10 @@ class ZImageModel(DiffusionModel):
 
         logger.info("Loading Z-Image text encoder from %s", text_encoder_path)
         self.text_encoder, self.tokenizer = load_zimage_text_encoder(
-            text_encoder_path, dtype=dtype, device=device
+            text_encoder_path,
+            dtype=dtype,
+            device=device,
+            tokenizer_dir=find_zimage_tokenizer_dir(text_encoder_path),
         )
         self.text_encoder.eval().requires_grad_(False)
 
@@ -151,9 +158,12 @@ class ZImageModel(DiffusionModel):
     def schedule(self, steps: int, height: int, width: int) -> list[Step]:
         dev = torch.device(self.device)
         sigmas = zimage_sampling.get_sigmas(steps, dev)
-        ts = zimage_sampling.get_timesteps(steps, dev)
+        # Step.t carries the *sigma* grid (1 -> 1/steps -> 0). Both solvers consume
+        # it as sigma: the Euler loop integrates ``x -= delta * v`` (delta = sigma_i -
+        # sigma_{i+1}) and ER-SDE reconstructs its sigmas from Step.t. The model's
+        # actual timestep ``t = 1 - sigma`` is derived in ``denoise_step``.
         return [
-            Step(t=ts[i], delta=sigmas[i] - sigmas[i + 1])
+            Step(t=sigmas[i], delta=sigmas[i] - sigmas[i + 1])
             for i in range(steps)
         ]
 
@@ -168,17 +178,23 @@ class ZImageModel(DiffusionModel):
         dev = torch.device(self.device)
         x_list = [latents[0]]  # [C, 1, H, W]
         cap = [cond.cond[0]]   # [n_valid, cap_feat_dim]
-        t_full = torch.full((1,), float(t), device=dev, dtype=latents.dtype)
+        # ``t`` is sigma (see ``schedule``); the DiT's model timestep is ``1 - sigma``.
+        t_full = torch.full((1,), 1.0 - float(t), device=dev, dtype=latents.dtype)
 
         with torch.no_grad():
             # The scheduler integrates ``x + dt * noise_pred`` with ``noise_pred =
             # -model_out``; our shared euler loop is ``x -= delta * v``, so the
             # velocity v must be the NEGATED DiT output.
             pos = self.dit(x_list, t_full, cap)[0].unsqueeze(0)  # [1, C, 1, H, W]
-            v = -pos
+            v_pos = -pos
             if guidance_scale > 1.0 and cond.null is not None:
                 neg = self.dit(x_list, t_full, [cond.null[0]])[0].unsqueeze(0)
-                v = v + guidance_scale * (v + neg)
+                # CFG over velocities: v = v_uncond + g * (v_pos - v_uncond),
+                # where v_pos = -pos (conditional) and v_uncond = -neg.
+                v_uncond = -neg
+                v = v_uncond + guidance_scale * (v_pos - v_uncond)
+            else:
+                v = v_pos
         return v
 
     def finalize_latent(self, latents: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -192,18 +208,9 @@ class ZImageModel(DiffusionModel):
         return round_up(width, align), round_up(height, align)
 
     def percent_to_sigma(self, percent: float) -> float:
-        """Percent -> sigma (used only if the ER-SDE sampler is selected).
+        """Percent -> sigma (used by the ER-SDE solver to nudge sigma_0 below 1).
 
-        Z-Image's default schedule is a plain uniform grid (no shift), so a linear
-        fallback is correct.
+        The shifted schedule's first sigma lands exactly on 1.0, where the ER-SDE
+        solver's ``sigma/(1-sigma)`` blows up; nudge it to just below 1.
         """
         return 1.0 - percent
-
-    def generate(self, **kwargs):
-        # Z-Image's flow schedule (model timestep t = 1 - sigma) is only compatible
-        # with the Euler solver; er_sde reads ``step.t`` as sigma and would produce
-        # garbage. The web UI defaults to er_sde, so coerce it to euler for Z-Image.
-        if kwargs.get("sampler") == "er_sde":
-            logger.warning("Z-Image supports only the 'euler' sampler; coercing er_sde -> euler")
-            kwargs["sampler"] = "euler"
-        return super().generate(**kwargs)

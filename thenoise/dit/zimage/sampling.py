@@ -4,10 +4,12 @@ Z-Image-Turbo is a distilled flow model. Its default schedule is ``linspace(1,
 1/steps, steps)`` pushed through the scheduler's static flow shift (shift = 3.0,
 ``use_dynamic_shifting`` is False), plus a trailing 0 sigma.
 
-The model's timestep input is ``t = 1 - sigma`` (in [0, 1]); the DiT multiplies it by
-its internal ``t_scale`` (1000). The shared ``DiffusionModel`` Euler loop integrates
-``x -= delta * velocity`` with ``delta = sigma - sigma_next``, reproducing the
-FlowMatch Euler update (where the velocity is the negated DiT output).
+The schedule's ``Step.t`` carries this *sigma* grid (1 -> ~1/steps -> 0); the shared
+``DiffusionModel`` Euler loop integrates ``x -= delta * velocity`` with
+``delta = sigma - sigma_next``, reproducing the FlowMatch Euler update (where the
+velocity is the negated DiT output). The DiT's model timestep ``t = 1 - sigma``
+(in [0, 1], scaled by the internal ``t_scale`` 1000) is derived in the adapter's
+``denoise_step`` from the sigma it receives.
 """
 from __future__ import annotations
 
@@ -29,9 +31,3 @@ def get_sigmas(steps: int, device: torch.device) -> torch.Tensor:
     sigmas = SHIFT * sigmas / (1.0 + (SHIFT - 1.0) * sigmas)
     sigmas = torch.cat([sigmas, torch.zeros(1)])
     return sigmas.to(torch.float32).to(device)
-
-
-def get_timesteps(steps: int, device: torch.device) -> torch.Tensor:
-    """Model timesteps ``t = 1 - sigma`` for each denoise step (in [0, 1])."""
-    sigmas = get_sigmas(steps, device)
-    return (1.0 - sigmas[:-1]).to(device)
