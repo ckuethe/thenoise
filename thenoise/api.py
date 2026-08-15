@@ -58,6 +58,15 @@ def create_app(runtime) -> FastAPI:
     def health():
         return {"status": "ok", "models": runtime.available()}
 
+    @app.get("/lora")
+    def loras():
+        """List available LoRA names (short, no .safetensors suffix)."""
+        try:
+            model = runtime.model
+        except NotLoadedError:
+            return Response(status_code=503, content="no model is loaded")
+        return {"loras": model.list_loras()}
+
     @app.post("/text2image")
     def text2image(req: Text2ImageRequest):
         try:

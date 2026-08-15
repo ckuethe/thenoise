@@ -104,6 +104,43 @@ def test_lora_spec_hash():
     assert h1 == h2  # sorted, so same hash
 
 
+def test_list_loras_returns_short_names_recursive():
+    """list_loras strips .safetensors and scans subdirectories."""
+    import tempfile, os
+    from thenoise.models.base import DiffusionModel
+
+    class _TestModel(DiffusionModel):
+        name = "test"
+        @staticmethod
+        def detect(f): return False
+        def encode_prompt(self, prompt, negative_prompt="", *, guidance_scale): pass
+        def init_latents(self, height, width, seed): pass
+        def schedule(self, steps, height, width): pass
+        def denoise_step(self, latents, t, cond, guidance_scale, i): pass
+        def _upscale_format(self): return "wan21"
+
+    model = object.__new__(_TestModel)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.makedirs(os.path.join(tmpdir, "sub"))
+        for rel in ["12345_something.safetensors",
+                    "67890_other.safetensors",
+                    "sub/style.safetensors",
+                    "not_a_lora.txt"]:
+            with open(os.path.join(tmpdir, rel), "w") as f:
+                f.write("x")
+
+        model.lora_dir = tmpdir
+        assert model.list_loras() == [
+            "12345_something",
+            "67890_other",
+            "sub/style",
+        ]
+
+        model.lora_dir = ""
+        assert model.list_loras() == []
+
+
 def test_cli_serve_parses_model_paths():
     args = build_parser().parse_args([
         "serve",

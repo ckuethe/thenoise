@@ -54,6 +54,19 @@
   .sidebar textarea { resize: vertical; min-height: 42px; line-height: 1.4; }
   .sidebar textarea#prompt { min-height: 180px; font-size: .95rem; }
   .sidebar textarea#negative_prompt { min-height: 70px; }
+
+  /* lora autocomplete dropdown */
+  .lora-field { position: relative; }
+  .lora-ac {
+    position: absolute; left: 0; right: 0; top: calc(100% + .3rem);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    max-height: 180px; overflow-y: auto; z-index: 30;
+    box-shadow: 0 6px 24px rgba(0,0,0,.45); display: none;
+  }
+  .lora-ac.open { display: block; }
+  .lora-ac .item { padding: .45rem .65rem; cursor: pointer; font-size: .82rem; }
+  .lora-ac .item:hover, .lora-ac .item.sel { background: var(--accent-soft); color: var(--accent); }
+  .lora-ac .empty { padding: .5rem .65rem; color: var(--faint); font-size: .8rem; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
   .hint { font-size: .72rem; color: var(--faint); font-weight: 400; text-transform: none; letter-spacing: 0; }
 
@@ -284,9 +297,10 @@
 
   <div class="divider"></div>
 
-  <div class="field">
-    <label for="lora_specs">LoRA specs <span class="hint">one per line, e.g. style:0.8</span></label>
-    <textarea id="lora_specs" rows="2" placeholder=""></textarea>
+  <div class="field lora-field">
+    <label for="lora_specs">LoRA specs <span class="hint">type to autocomplete</span></label>
+    <textarea id="lora_specs" rows="2" placeholder="e.g. style:0.8, one per line"></textarea>
+    <div class="lora-ac" id="lora_ac"></div>
   </div>
 
   <button class="btn" id="generate">Generate</button>
@@ -508,6 +522,110 @@ function downloadImage() {
   a.remove();
 }
 $('download').addEventListener('click', downloadImage);
+
+/* ---------- lora autocomplete ---------- */
+let loras = [];
+
+async function loadLoras() {
+  try {
+    const res = await fetch('/lora');
+    if (res.ok) {
+      const data = await res.json();
+      loras = (data.loras || []).sort();
+    }
+  } catch (e) { loras = []; }
+}
+
+const acEl = () => $('lora_ac');
+
+function openAc() { acEl().classList.add('open'); }
+function closeAc() { acEl().classList.remove('open'); acEl().innerHTML = ''; }
+
+function tokenAtCursor(ta) {
+  const s = ta.selectionStart;
+  const before = ta.value.slice(0, s);
+  const nl = before.lastIndexOf('\n');
+  const lineStart = nl === -1 ? 0 : nl + 1;
+  const sp = before.lastIndexOf(' ');
+  const tokenStart = sp > lineStart ? sp + 1 : lineStart;
+  return { token: ta.value.slice(tokenStart, s).trim(), tokenStart };
+}
+
+function insertLora(name, tokenStart) {
+  const ta = $('lora_specs');
+  const s = ta.selectionStart;
+  ta.value = ta.value.slice(0, tokenStart) + name + ta.value.slice(s);
+  const pos = tokenStart + name.length;
+  ta.setSelectionRange(pos, pos);
+  ta.focus();
+}
+
+function renderAc(items, tokenStart) {
+  const ac = acEl();
+  ac.innerHTML = '';
+  if (!items.length) {
+    const d = document.createElement('div');
+    d.className = 'empty';
+    d.textContent = 'No matching LoRAs';
+    ac.appendChild(d);
+    openAc();
+    return;
+  }
+  items.forEach(name => {
+    const d = document.createElement('div');
+    d.className = 'item';
+    d.dataset.name = name;
+    d.dataset.tokenStart = tokenStart;
+    d.textContent = name;
+    ac.appendChild(d);
+  });
+  openAc();
+}
+
+$('lora_specs').addEventListener('input', () => {
+  const ta = $('lora_specs');
+  const { token, tokenStart } = tokenAtCursor(ta);
+  if (token.length < 2) { closeAc(); return; }
+  const q = token.toLowerCase();
+  renderAc(loras.filter(n => n.toLowerCase().includes(q)), tokenStart);
+});
+
+acEl().addEventListener('mousedown', e => {
+  const item = e.target.closest('.item');
+  if (!item) return;
+  e.preventDefault();
+  insertLora(item.dataset.name, parseInt(item.dataset.tokenStart, 10));
+  closeAc();
+});
+
+$('lora_specs').addEventListener('keydown', e => {
+  if (!acEl().classList.contains('open')) return;
+  if (e.key === 'Escape') { closeAc(); return; }
+  const items = acEl().querySelectorAll('.item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    let idx = -1;
+    items.forEach((it, i) => { if (it.classList.contains('sel')) idx = i; });
+    idx = e.key === 'ArrowDown'
+      ? (idx + 1) % items.length
+      : (idx === -1 ? items.length - 1 : (idx - 1 + items.length) % items.length);
+    items.forEach((it, i) => it.classList.toggle('sel', i === idx));
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    const sel = acEl().querySelector('.item.sel');
+    if (sel) {
+      e.preventDefault();
+      insertLora(sel.dataset.name, parseInt(sel.dataset.tokenStart, 10));
+      closeAc();
+    }
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.lora-field')) closeAc();
+});
+
+loadLoras();
 
 /* ---------- generate ---------- */
 $('generate').addEventListener('click', async () => {

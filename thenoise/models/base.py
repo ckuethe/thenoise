@@ -347,13 +347,22 @@ class DiffusionModel(ABC):
         self._active_lora_spec = new_spec
 
     def list_loras(self) -> List[str]:
-        """List available LoRA filenames in the LoRA directory."""
+        """List available LoRA names relative to lora_dir.
+
+        Subdirectories are scanned recursively. Names are relative paths with the
+        .safetensors suffix stripped (e.g. "12345_something" or "sub/style"), so
+        they can be used directly as lora_specs (which auto-appends the suffix).
+        """
         if not self.lora_dir:
             return []
-        return [
-            os.path.basename(p)
-            for p in sorted(glob.glob(os.path.join(self.lora_dir, "*.safetensors")))
-        ]
+        names = []
+        for root, _dirs, files in os.walk(self.lora_dir):
+            for name in sorted(files):
+                if not name.endswith(".safetensors"):
+                    continue
+                rel = os.path.relpath(os.path.join(root, name), self.lora_dir)
+                names.append(rel[: -len(".safetensors")])
+        return sorted(names)
 
     def percent_to_sigma(self, percent: float) -> float:
         """Map a percent (0..1) to a sigma, used by the sampler's SNR offset.
