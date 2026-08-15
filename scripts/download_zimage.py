@@ -32,10 +32,6 @@ from safetensors.torch import load_file, save_file
 COMFY_REPO = "Comfy-Org/z_image_turbo"
 TONGYI_REPO = "Tongyi-MAI/Z-Image-Turbo"
 
-# SesquiLSR Flux upscaler (fp32); the engine runs everything in bf16.
-SESQUI_FLUX_UPSCALER_URL = (
-    "https://raw.githubusercontent.com/LoganBooker/SesquiLSR/main/models/upscaler_Flux.safetensors"
-)
 # Package weights dir the upscaler format registry reads from.
 UPSCALER_WEIGHTS_DIR = (
     Path(__file__).resolve().parents[1] / "thenoise" / "upscale" / "weights"
@@ -46,14 +42,6 @@ SINGLE_FILES = [
     ("dit", COMFY_REPO, "split_files/diffusion_models/z_image_turbo_bf16.safetensors"),
     ("vae", COMFY_REPO, "split_files/vae/ae.safetensors"),
     ("text_encoder", COMFY_REPO, "split_files/text_encoders/qwen_3_4b.safetensors"),
-]
-
-# Qwen3 tokenizer (carries the chat template used by the caption encoder).
-TOKENIZER_FILES = [
-    "merges.txt",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "vocab.json",
 ]
 
 
@@ -98,10 +86,6 @@ def main() -> None:
     for name, repo, path in SINGLE_FILES:
         dest = hf_hub_download(repo, path, local_dir=str(out))
         print(f"{name:14s} -> {dest}")
-
-    for file in TOKENIZER_FILES:
-        dest = hf_hub_download(TONGYI_REPO, f"tokenizer/{file}", local_dir=str(out))
-        print(f"{'tokenizer':14s} -> {dest}")
 
     download_flux_upscaler()
 

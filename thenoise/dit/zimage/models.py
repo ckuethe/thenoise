@@ -26,11 +26,6 @@ logger = logging.getLogger(__name__)
 ADALN_EMBED_DIM = 256
 SEQ_MULTI_OF = 32
 
-#: torch.compile(fullgraph=True) on the transformer block by default; set
-#: ``ZIMAGE_NO_COMPILE=1`` to fall back to eager execution (e.g. if a graph-break or
-#: a torch version regression appears on a given ROCm build).
-_COMPILE = os.environ.get("ZIMAGE_NO_COMPILE", "").lower() not in ("1", "true", "yes", "on")
-
 
 class RMSNorm(nn.Module):
     def __init__(self, dim, eps=1e-5):
@@ -156,6 +151,7 @@ class ZImageTransformerBlock(nn.Module):
         if modulation:
             self.adaLN_modulation = nn.Sequential(nn.Linear(min(dim, ADALN_EMBED_DIM), 4 * dim, bias=True))
 
+    @torch.compile(fullgraph=True)
     def forward(self, x, attn_mask, freqs_cis, adaln_input=None):
         if self.modulation:
             mod = self.adaLN_modulation(adaln_input)
@@ -171,14 +167,6 @@ class ZImageTransformerBlock(nn.Module):
             x = x + self.attention_norm2(attn_out)
             x = x + self.ffn_norm2(self.feed_forward(self.ffn_norm1(x)))
         return x
-
-
-if _COMPILE:
-    # The block is invoked once per layer per denoise step, so it is the highest-value
-    # target for torch.compile (fullgraph=True forces the whole block into one graph).
-    # Guarded by the ZIMAGE_NO_COMPILE env opt-out.
-    logger.info("Z-Image: enabling torch.compile(fullgraph=True) on transformer blocks")
-    ZImageTransformerBlock.forward = torch.compile(fullgraph=True)(ZImageTransformerBlock.forward)
 
 
 class FinalLayer(nn.Module):

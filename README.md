@@ -229,11 +229,6 @@ its own `--vae`.
   --out /tmp/zimage.png
 ```
 
-> **Note:** `--text-encoder` is the *single-file* Qwen3 checkpoint (the config is
-> vendored, so no `config.json` is needed). The tokenizer is read from a local
-> `tokenizer/` directory if one is found under the download root, otherwise it is
-> fetched from the Hub.
-
 ---
 
 ## Operation Modes
@@ -271,8 +266,6 @@ Krea 2:
   --text-encoder ./models/krea2/text_encoders/qwen3vl_4b_bf16.safetensors \
   --host 127.0.0.1 --port 8000
 ```
-
-Z-Image-Turbo (uses the Flux VAE; the text encoder is a single file):
 
 ```bash
 ./thenoise.sh serve \
@@ -368,7 +361,7 @@ If no model is loaded, `/text2image` returns HTTP 503.
 |------|----------|---------|-------------|
 | `--dit` | yes | — | Path to the DiT checkpoint (`.safetensors`) |
 | `--vae` | yes | — | Path to the VAE checkpoint (`.safetensors`) |
-| `--text-encoder` | yes | — | Path to the text encoder checkpoint (`.safetensors`; single file for Z-Image) |
+| `--text-encoder` | yes | — | Path to the text encoder checkpoint (`.safetensors`) |
 | `--lora-dir` | no | — | Directory containing LoRA `.safetensors` files |
 | `--device` | no | `cuda` | Inference device (ROCm aliases `cuda` → `hip`) |
 
