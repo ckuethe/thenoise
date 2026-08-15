@@ -2,9 +2,10 @@
 
 Everything comes from ``Comfy-Org/z_image_turbo`` (single-file bf16, no auth): the
 DiT, the Flux VAE, and the Qwen3-4B text encoder are each one safetensors file. The
-tokenizer still comes from ``Tongyi-MAI/Z-Image-Turbo`` (it carries the Qwen chat
-template used by the caption encoder); the model's vendored config means no
-``config.json`` is needed next to the text encoder.
+tokenizer config files are vendored under ``thenoise/dit/zimage/configs/tokenizer/``
+(they carry the Qwen chat template used by the caption encoder), so no tokenizer is
+downloaded; the model's vendored config means no ``config.json`` is needed next to
+the text encoder.
 
 The Flux latent upscaler for the Z-Image upscale path is fetched from
 ``LoganBooker/SesquiLSR`` and converted fp32 -> bf16 into the package's committed
@@ -14,7 +15,7 @@ The Flux latent upscaler for the Z-Image upscale path is fetched from
   DiT           split_files/diffusion_models/z_image_turbo_bf16.safetensors
   VAE           split_files/vae/ae.safetensors                             (Flux VAE)
   Text encoder  split_files/text_encoders/qwen_3_4b.safetensors           (Qwen3-4B)
-  Tokenizer     tokenizer/     (vocab.json, tokenizer.json, ...)
+  Tokenizer     vendored in thenoise/dit/zimage/configs/tokenizer/       (not downloaded)
   Flux upscaler thenoise/upscale/weights/upscaler_flux.safetensors        (bf16)
 
 Usage:
@@ -30,7 +31,6 @@ from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file, save_file
 
 COMFY_REPO = "Comfy-Org/z_image_turbo"
-TONGYI_REPO = "Tongyi-MAI/Z-Image-Turbo"
 
 # Package weights dir the upscaler format registry reads from.
 UPSCALER_WEIGHTS_DIR = (

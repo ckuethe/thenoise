@@ -5,7 +5,8 @@ states feed the DiT's caption embedder. The DiT accepts both single-file and sha
 (HF) checkpoints. The text encoder is a *single file* (e.g. ComfyUI's
 ``text_encoders/qwen_3_4b.safetensors``): its ``Qwen3Config`` is vendored here so no
 ``config.json`` is fetched from the Hub, weights are loaded directly from the
-safetensors file, and only the tokenizer is pulled by repo id (or a local directory).
+safetensors file, and the tokenizer config files are vendored under ``configs/`` so
+no tokenizer is fetched from the Hub either.
 """
 from __future__ import annotations
 
@@ -20,10 +21,11 @@ from thenoise.utils.safetensors import load_split_weights, strip_wrap_prefixes
 
 logger = logging.getLogger(__name__)
 
-#: The Qwen3 tokenizer is fetched from the official Z-Image-Turbo repo (small, cached
-#: after first use). It carries the Qwen chat template used by the caption encoder.
-ZIMAGE_TOKENIZER_REPO = "Tongyi-MAI/Z-Image-Turbo"
-ZIMAGE_TOKENIZER_SUBFOLDER = "tokenizer"
+#: The Qwen3 tokenizer config files are vendored in the package under ``configs/``
+#: (mirroring the ``tokenizer/`` subfolder of the official Z-Image-Turbo repo). It
+#: carries the Qwen chat template used by the caption encoder, so the tokenizer loads
+#: offline with ``local_files_only=True`` and is never fetched from the Hub.
+ZIMAGE_TOKENIZER_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "configs", "tokenizer")
 
 # Vendored copy of the Z-Image Qwen3-4B ``text_encoder/config.json`` so the text
 # encoder is built without fetching the config from the Hub. Qwen3 is natively
@@ -144,7 +146,6 @@ def load_zimage_text_encoder(
     dtype: torch.dtype = torch.bfloat16,
     device: Union[str, torch.device] = "cpu",
     tokenizer_dir: Optional[str] = None,
-    tokenizer_repo: str = ZIMAGE_TOKENIZER_REPO,
 ) -> tuple:
     """Load the Z-Image Qwen3 text encoder + tokenizer.
 
@@ -155,9 +156,8 @@ def load_zimage_text_encoder(
     ``config.json`` is needed next to the weights.
 
     The tokenizer is loaded from ``tokenizer_dir`` if given (a local directory), else
-    from ``tokenizer_repo`` (a HF repo id, defaulting to the official Z-Image-Turbo
-    ``tokenizer/`` subfolder). Either must carry the Qwen chat template used by the
-    caption encoder.
+    from the vendored ``configs/tokenizer/`` directory. Either must carry the Qwen
+    chat template used by the caption encoder.
 
     Returns ``(text_encoder, tokenizer)`` where ``text_encoder`` is the bare Qwen3
     model (LM head dropped) whose ``hidden_states`` feed the DiT's caption embedder.
@@ -172,12 +172,14 @@ def load_zimage_text_encoder(
 
     qwen3 = _load_qwen3(path, dtype=dtype, device=device)
 
-    if tokenizer_dir is not None:
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only=True)
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_repo, subfolder=ZIMAGE_TOKENIZER_SUBFOLDER
+    tokenizer_dir = tokenizer_dir or ZIMAGE_TOKENIZER_CONFIG_DIR
+    if not os.path.isdir(tokenizer_dir):
+        raise FileNotFoundError(
+            f"Z-Image tokenizer config directory not found at {tokenizer_dir}. "
+            "Expected configs/tokenizer/ with tokenizer.json, tokenizer_config.json, "
+            "vocab.json and merges.txt."
         )
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only=True)
 
     qwen3.config.use_cache = False
     model = qwen3.model  # bare Qwen3Model; hidden_states feed the caption embedder
@@ -191,8 +193,8 @@ def find_zimage_tokenizer_dir(text_encoder_path: str, max_depth: int = 3) -> Opt
     The downloader drops the tokenizer under the output root (``<out>/tokenizer/``)
     while the text encoder lands under ``<out>/split_files/text_encoders/``. Search
     ``max_depth`` parent directories of the text encoder for a ``tokenizer/`` dir so
-    the tokenizer is loaded offline when present. Returns ``None`` to fall back to
-    fetching the tokenizer from the Hub.
+    the tokenizer is loaded offline when present. Returns ``None`` to fall back to the
+    vendored ``configs/tokenizer/`` directory.
     """
     base = os.path.dirname(os.path.abspath(text_encoder_path))
     for _ in range(max_depth):

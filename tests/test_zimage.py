@@ -9,6 +9,7 @@ import torch
 
 from thenoise.dit.zimage.sampling import get_sigmas
 from thenoise.dit.zimage.utils import (
+    ZIMAGE_TOKENIZER_CONFIG_DIR,
     find_zimage_tokenizer_dir,
     load_zimage_text_encoder,
 )
@@ -60,6 +61,17 @@ def test_find_zimage_tokenizer_dir(tmp_path):
 def test_find_zimage_tokenizer_dir_returns_none_without_tokenizer(tmp_path):
     te = tmp_path / "split_files" / "text_encoders" / "qwen_3_4b.safetensors"
     assert find_zimage_tokenizer_dir(str(te)) is None
+
+
+def test_vendored_tokenizer_config_dir_exists():
+    # The tokenizer config files are checked into the package so the tokenizer loads
+    # offline without fetching from the Hub (mirrors the anima configs/ pattern).
+    from pathlib import Path
+
+    d = Path(ZIMAGE_TOKENIZER_CONFIG_DIR)
+    assert d.is_dir()
+    for required in ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt"):
+        assert (d / required).is_file(), f"missing vendored tokenizer file {required}"
 
 
 def test_zimage_upscale_format_is_flux():
