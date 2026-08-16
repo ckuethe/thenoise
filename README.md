@@ -329,8 +329,8 @@ All fields except `prompt` are optional. Omitted fields use the loaded model's d
 |-------|------|---------|-------------|
 | `prompt` | `string` | *(required)* | Text prompt |
 | `negative_prompt` | `string` | `""` | Negative prompt |
-| `width` | `int` | model default | Output width in pixels |
-| `height` | `int` | model default | Output height in pixels |
+| `width` | `int` | model default | Output width in pixels (0..1024) |
+| `height` | `int` | model default | Output height in pixels (0..1024) |
 | `steps` | `int` | model default | Number of denoising steps |
 | `guidance_scale` | `float` | model default | CFG scale (≤ 1.0 disables CFG) |
 | `seed` | `int` | random | Random seed (`-1` for random) |

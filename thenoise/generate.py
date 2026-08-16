@@ -9,12 +9,21 @@ from __future__ import annotations
 import logging
 import os
 import random
+import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 def run_generate(args) -> None:
+    _MAX_DIM = 1024
+    if args.width is not None and (args.width < 0 or args.width > _MAX_DIM):
+        print(f"error: width must be between 0 and {_MAX_DIM} (got {args.width}).", file=sys.stderr)
+        sys.exit(1)
+    if args.height is not None and (args.height < 0 or args.height > _MAX_DIM):
+        print(f"error: height must be between 0 and {_MAX_DIM} (got {args.height}).", file=sys.stderr)
+        sys.exit(1)
+
     from .models.config import GenerateRequest
     from .runtime import Settings, ModelPaths, Runtime
     settings = Settings(device=args.device)

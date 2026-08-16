@@ -56,12 +56,12 @@ def test_upscalers_available_without_model():
 def test_text2image_passes_pixel_upscaler(tmp_path):
     runtime = _fake_runtime(tmp_path)
     app = create_app(runtime)
-    req = Text2ImageRequest(prompt="a fox", pixel_upscaler="RealESRGAN_x4")
+    req = Text2ImageRequest(prompt="a fox", width=512, height=512, pixel_upscaler="RealESRGAN_x4")
     res = _endpoint(app, "/text2image")(req)
     assert res.status_code == 200
     assert runtime._pipeline.last_request.pixel_upscaler == "RealESRGAN_x4"
 
 
 def test_request_field_defaults_none():
-    req = Text2ImageRequest(prompt="x")
+    req = Text2ImageRequest(prompt="x", width=512, height=512)
     assert req.pixel_upscaler is None
