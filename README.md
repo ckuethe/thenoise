@@ -188,7 +188,7 @@ rather keep the system interpreter.
 
 ## Supported Models
 
-Anima, Krea 2, Z-Image-Turbo, and Flux.2 Klein are supported. New models will be added. PRs adding model support are welcome.
+Anima, Krea 2, Z-Image-Turbo, Flux.2 Klein, and Illustrious are supported. New models will be added. PRs adding model support are welcome.
 
 All download commands use `.venv/bin/python` and need the `scripts` extra
 installed (`uv pip install -e ".[scripts]"`), because `huggingface_hub` lives
@@ -202,7 +202,7 @@ in the project venv created by [Setup](#setup) — a bare `python` will not work
 | Z-Image | ~21 GB | Non-distilled version of Z-Image-Turbo | x |
 | Flux.2 Klein 4B | ~12 GB | Distilled 4-step flow MMDiT; Flux.2 VAE + Qwen3-4B | ✓ |
 | Flux.2 Klein 9B | ~25 GB | Distilled 4-step flow MMDiT; Flux.2 VAE + Qwen3-8B | ✓ |
-
+| Illustrious | ~6.9 GB | SDXL-based anime; CLIP-L + CLIP-G text encoders, discrete euler | x |
 
 ### Krea 2
 
@@ -282,6 +282,34 @@ steps with CFG off (`guidance_scale` 1.0). Base variants need explicit CFG:
 For a *base* checkpoint (`-base-4b` / `-base-9b`) use `--steps 50 --guidance-scale 4`
 and pass a `--negative-prompt`. The default sampler is Euler; ER-SDE is also
 selectable via `--sampler er_sde`.
+
+### Illustrious
+
+Illustrious-XL v2.0 is an SDXL-based anime model (LDM UNet, CLIP-L + CLIP-G
+text encoders, SDXL VAE). Unlike the flow models above it is a discrete
+epsilon model, so it only supports the `euler` sampler — requesting `er_sde`
+warns and silently falls back to `euler`.
+
+Download:
+
+```bash
+.venv/bin/python scripts/download_illustrious.py --out ./models/illustrious
+```
+
+This fetches the combined ~6.9 GB checkpoint and splits it into the DiT, VAE,
+and a combined `clip_l_g.safetensors` (both text encoders) plus the CLIP
+tokenizer under `models/illustrious/tokenizer/`.
+
+Generate:
+
+```bash
+./thenoise.sh generate \
+  --dit ./models/illustrious/split_files/diffusion_models/illustrious_unet.safetensors \
+  --vae ./models/illustrious/split_files/vae/illustrious_vae.safetensors \
+  --text-encoder ./models/illustrious/split_files/text_encoders/clip_l_g.safetensors \
+  --prompt "a fox walking in the snow" --steps 28 --guidance-scale 5.5 \
+  --out /tmp/illustrious.png
+```
 
 ---
 
@@ -449,7 +477,7 @@ All fields except `prompt` are optional. Omitted fields use the loaded model's d
 | `upscale_factor` | `float` | `1.0` | Upscale factor (max depends on the pixel upscaler scale) |
 | `upscale_type` | `string` | `refined` | `refined` (latent 2x + refiner) or `no-refiner` (pixel upscaler only) |
 | `pixel_upscaler` | `string` | `null` | Pixel upscaler name (no `.safetensors` suffix) from `--upscaler-dir` |
-| `sampler` | `string` | `er_sde` | Denoising solver: `euler` or `er_sde` |
+| `sampler` | `string` | `er_sde` | Denoising solver: `euler` or `er_sde` (discrete models like Illustrious only support `euler` and auto-fallback) |
 | `qwen_vae_enhance` | `bool` | `false` | Nyquist notch post-filter (removes 2px grid artifacts) |
 | `film_grain` | `float` | `0.0` | Film grain strength, 0.0–10.0 |
 | `sharpening` | `float` | `0.0` | RCAS sharpening strength, 0.0–1.0 |
@@ -550,7 +578,7 @@ curl -s localhost:8000/upscale \
 | `--upscale-type` | no | `refined` | `refined` or `no-refiner` |
 | `--upscale` | no | off | 2× latent upscale with refine denoise (legacy alias for `--upscale-type refined --upscale-factor 2`) |
 | `--upscale-factor` | no | `1.0` | Upscale factor (> 0.0; max depends on the pixel upscaler scale, see [Upscaling](#upscaling)) |
-| `--sampler` | no | `er_sde` | Solver: `euler` or `er_sde` |
+| `--sampler` | no | `er_sde` | Solver: `euler` or `er_sde` (discrete models like Illustrious only support `euler` and auto-fallback) |
 | `--qwen-vae-enhance` | no | off | Nyquist notch post-filter |
 | `--film-grain` | no | `0.0` | Film grain strength (0.0–10.0) |
 | `--sharpening` | no | `0.0` | RCAS sharpening strength (0.0–1.0) |

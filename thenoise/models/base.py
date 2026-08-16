@@ -85,6 +85,8 @@ class Conditioning:
     cond_mask: Optional[torch.Tensor] = None
     null: Optional[torch.Tensor] = None
     null_mask: Optional[torch.Tensor] = None
+    pooled: Optional[torch.Tensor] = None
+    neg_pooled: Optional[torch.Tensor] = None
 
 
 # Generic wrapper prefixes that repackagings (e.g. ComfyUI's "diffusion_model"
