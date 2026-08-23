@@ -242,13 +242,13 @@
     <div class="field">
       <label for="width">Width</label>
       <input type="number" id="width" placeholder="auto" value="1024">
-      <span class="hint">Max 1024</span>
+      <span class="hint">Max 4096</span>
     </div>
     <button class="swap" id="swap" title="Swap width and height" aria-label="Swap width and height">&#8646;</button>
     <div class="field">
       <label for="height">Height</label>
       <input type="number" id="height" placeholder="auto" value="1024">
-      <span class="hint">Max 1024</span>
+      <span class="hint">Max 4096</span>
     </div>
   </div>
 
@@ -745,6 +745,18 @@ $('generate').addEventListener('click', async () => {
   }
   const samplerVal = $('sampler').value;
   if (samplerVal) body.sampler = samplerVal;
+
+  const MAX_DIM = 4096;
+  for (const f of ['width', 'height']) {
+    const v = $(f).value === '' ? null : parseInt($(f).value, 10);
+    if (v !== null && (v < 0 || v > MAX_DIM)) {
+      btn.disabled = false;
+      clearInterval(timer);
+      overlay.classList.add('hidden');
+      alert(`error: ${f} must be between 0 and ${MAX_DIM} (got ${v}).`);
+      return;
+    }
+  }
 
   try {
     const res = await fetch('/text2image', {

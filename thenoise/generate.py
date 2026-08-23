@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_generate(args) -> None:
-    _MAX_DIM = 1024
+    _MAX_DIM = 4096
     if args.width is not None and (args.width < 0 or args.width > _MAX_DIM):
         print(f"error: width must be between 0 and {_MAX_DIM} (got {args.width}).", file=sys.stderr)
         sys.exit(1)

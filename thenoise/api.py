@@ -31,15 +31,6 @@ class Text2ImageRequest(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
 
-    @property
-    def _max_dim(self) -> int:
-        return 1024
-
-    def model_post_init(self, __context) -> None:
-        max_dim = self._max_dim
-        for name, value in (("width", self.width), ("height", self.height)):
-            if value is not None and (value < 0 or value > max_dim):
-                raise ValueError(f"{name} must be between 0 and {max_dim} (got {value}).")
     steps: Optional[int] = None
     guidance_scale: Optional[float] = None
     seed: Optional[int] = None
