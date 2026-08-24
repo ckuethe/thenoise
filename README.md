@@ -188,7 +188,7 @@ rather keep the system interpreter.
 
 ## Supported Models
 
-Anima, Krea 2, Z-Image-Turbo, Flux.2 Klein, and Illustrious are supported. New models will be added. PRs adding model support are welcome.
+Anima, Krea 2, Z-Image-Turbo, Flux.2 Klein, and SDXL are supported. New models will be added. PRs adding model support are welcome.
 
 All download commands use `.venv/bin/python` and need the `scripts` extra
 installed (`uv pip install -e ".[scripts]"`), because `huggingface_hub` lives
@@ -202,7 +202,7 @@ in the project venv created by [Setup](#setup) — a bare `python` will not work
 | Z-Image | ~21 GB | Non-distilled version of Z-Image-Turbo | x |
 | Flux.2 Klein 4B | ~12 GB | Distilled 4-step flow MMDiT; Flux.2 VAE + Qwen3-4B | ✓ |
 | Flux.2 Klein 9B | ~25 GB | Distilled 4-step flow MMDiT; Flux.2 VAE + Qwen3-8B | ✓ |
-| Illustrious | ~6.9 GB | SDXL-based anime; CLIP-L + CLIP-G text encoders, discrete euler | x |
+| SDXL | ~6.9 GB | Stable Diffusion XL (incl. anime fine-tunes like Illustrious-XL); CLIP-L + CLIP-G text encoders, discrete euler | x |
 
 ### Krea 2
 
@@ -283,32 +283,67 @@ For a *base* checkpoint (`-base-4b` / `-base-9b`) use `--steps 50 --guidance-sca
 and pass a `--negative-prompt`. The default sampler is Euler; ER-SDE is also
 selectable via `--sampler er_sde`.
 
-### Illustrious
+### SDXL
 
-Illustrious-XL v2.0 is an SDXL-based anime model (LDM UNet, CLIP-L + CLIP-G
-text encoders, SDXL VAE). Unlike the flow models above it is a discrete
-epsilon model, so it only supports the `euler` sampler — requesting `er_sde`
-warns and silently falls back to `euler`.
+Stable Diffusion XL (LDM UNet, CLIP-L + CLIP-G text encoders, SDXL VAE). Because
+the architecture is identical across all SDXL checkpoints, the same adapter loads
+vanilla SDXL and any SDXL fine-tune — anime models like Illustrious-XL, Juggernaut,
+etc. — automatically; the model type is detected from the `--dit` UNet keys.
 
-Download:
+SDXL is a discrete model. It supports the `euler` sampler; requesting `er_sde`
+(a stochastic flow-oriented solver) warns and silently falls back to `euler`,
+since er_sde produces poor output on SDXL.
+
+The prediction type (epsilon vs v-prediction) is autodetected from marker tensors
+in the checkpoint (`v_pred` -> v-prediction), so both standard SDXL and
+v-prediction fine-tunes (e.g. SDXL Turbo) load correctly. Continuous-EDM
+(Playground V2.5) and zsnr v-prediction variants are detected but rejected with a
+clear error until supported. The downloader preserves these marker tensors into
+the split `--dit` file; if you point at a pre-split checkpoint, re-split it so
+the markers are included.
+
+SDXL has no latent (Sesqui) upscaler, so `--upscale` in `refined` mode (the
+default) warns and falls back to pixel-only upscaling — which requires a pixel
+upscaler (run `scripts/download_esrgan.py` and pass `--pixel-upscaler PATH`). Use
+`--upscale --upscale-type no-refiner --pixel-upscaler PATH` explicitly to upscale
+SDXL output.
+
+Download (this fetches the Illustrious-XL v2.0 checkpoint, an SDXL anime
+fine-tune; point the same files at any other SDXL model if you prefer):
 
 ```bash
-.venv/bin/python scripts/download_illustrious.py --out ./models/illustrious
+.venv/bin/python scripts/download_sdxl.py --out ./models/sdxl
 ```
 
 This fetches the combined ~6.9 GB checkpoint and splits it into the DiT, VAE,
 and a combined `clip_l_g.safetensors` (both text encoders) plus the CLIP
-tokenizer under `models/illustrious/tokenizer/`.
+tokenizer under `models/sdxl/tokenizer/`.
 
-Generate:
+**Single-file checkpoints.** Many SDXL/Illustrious mixes on Civitai ship as one
+combined `.safetensors`. You can point `--checkpoint` straight at that file and
+thenoise loads the DiT, VAE, and text encoders from it in memory — no splitting
+needed:
 
 ```bash
 ./thenoise.sh generate \
-  --dit ./models/illustrious/split_files/diffusion_models/illustrious_unet.safetensors \
-  --vae ./models/illustrious/split_files/vae/illustrious_vae.safetensors \
-  --text-encoder ./models/illustrious/split_files/text_encoders/clip_l_g.safetensors \
+  --checkpoint ./models/mix.safetensors \
   --prompt "a fox walking in the snow" --steps 28 --guidance-scale 5.5 \
-  --out /tmp/illustrious.png
+  --out /tmp/sdxl.png
+```
+
+The prediction type is autodetected from the combined checkpoint's marker tensors
+(`v_pred` -> v-prediction), just as for split checkpoints. `--checkpoint` is
+mutually exclusive with `--dit`/`--vae`/`--text-encoder`.
+
+Generate from the split download:
+
+```bash
+./thenoise.sh generate \
+  --dit ./models/sdxl/split_files/diffusion_models/sdxl_unet.safetensors \
+  --vae ./models/sdxl/split_files/vae/sdxl_vae.safetensors \
+  --text-encoder ./models/sdxl/split_files/text_encoders/clip_l_g.safetensors \
+  --prompt "a fox walking in the snow" --steps 28 --guidance-scale 5.5 \
+  --out /tmp/sdxl.png
 ```
 
 ---
@@ -477,7 +512,7 @@ All fields except `prompt` are optional. Omitted fields use the loaded model's d
 | `upscale_factor` | `float` | `1.0` | Upscale factor (max depends on the pixel upscaler scale) |
 | `upscale_type` | `string` | `refined` | `refined` (latent 2x + refiner) or `no-refiner` (pixel upscaler only) |
 | `pixel_upscaler` | `string` | `null` | Pixel upscaler name (no `.safetensors` suffix) from `--upscaler-dir` |
-| `sampler` | `string` | `er_sde` | Denoising solver: `euler` or `er_sde` (discrete models like Illustrious only support `euler` and auto-fallback) |
+| `sampler` | `string` | `er_sde` | Denoising solver: `euler` or `er_sde` (SDXL only supports euler; er_sde auto-falls back) |
 | `qwen_vae_enhance` | `bool` | `false` | Nyquist notch post-filter (removes 2px grid artifacts) |
 | `film_grain` | `float` | `0.0` | Film grain strength, 0.0–10.0 |
 | `sharpening` | `float` | `0.0` | RCAS sharpening strength, 0.0–1.0 |
@@ -578,7 +613,7 @@ curl -s localhost:8000/upscale \
 | `--upscale-type` | no | `refined` | `refined` or `no-refiner` |
 | `--upscale` | no | off | 2× latent upscale with refine denoise (legacy alias for `--upscale-type refined --upscale-factor 2`) |
 | `--upscale-factor` | no | `1.0` | Upscale factor (> 0.0; max depends on the pixel upscaler scale, see [Upscaling](#upscaling)) |
-| `--sampler` | no | `er_sde` | Solver: `euler` or `er_sde` (discrete models like Illustrious only support `euler` and auto-fallback) |
+| `--sampler` | no | `er_sde` | Solver: `euler` or `er_sde` (SDXL only supports euler; er_sde auto-falls back) |
 | `--qwen-vae-enhance` | no | off | Nyquist notch post-filter |
 | `--film-grain` | no | `0.0` | Film grain strength (0.0–10.0) |
 | `--sharpening` | no | `0.0` | RCAS sharpening strength (0.0–1.0) |

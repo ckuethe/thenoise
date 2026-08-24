@@ -6,9 +6,9 @@ concatenated). thenoise expects separate ``--dit`` / ``--vae`` /
 ``--text-encoder`` files, so this downloads the combined file and splits it once
 into its components:
 
-  UNet          model.diffusion_model.*   -> split_files/diffusion_models/illustrious_unet.safetensors
+  UNet          model.diffusion_model.*   -> split_files/diffusion_models/sdxl_unet.safetensors
   VAE (decode)  first_stage_model.decoder / post_quant_conv
-                                            -> split_files/vae/illustrious_vae.safetensors
+                                            -> split_files/vae/sdxl_vae.safetensors
   CLIP-L        conditioner.embedders.0.transformer.*
                                             -> clip_l.  in split_files/text_encoders/clip_l_g.safetensors
   CLIP-G        conditioner.embedders.1.model.*
@@ -21,9 +21,9 @@ both. The CLIP tokenizer is fetched into ``<out>/tokenizer/`` and loaded offline
 next to the text encoders (falling back to the package's vendored copy).
 
 Usage:
-    python scripts/download_illustrious.py --out ./models/illustrious
-    python scripts/download_illustrious.py --out ./models/illustrious --hyper-sd
-      (also fetches the optional Hyper-SD 8-step LoRA into ./models/illustrious/lora)
+    python scripts/download_sdxl.py --out ./models/sdxl
+    python scripts/download_sdxl.py --out ./models/sdxl --hyper-sd
+      (also fetches the optional Hyper-SD 8-step LoRA into ./models/sdxl/lora)
 """
 from __future__ import annotations
 
@@ -58,10 +58,27 @@ VAE_PREFIX = "first_stage_model."
 CLIP_L_PREFIX = "conditioner.embedders.0.transformer."
 CLIP_G_PREFIX = "conditioner.embedders.1.model."
 
+#: Prediction-type marker tensors (``v_pred``, ``edm_mean``/``edm_std``, ...) that
+#: some SDXL checkpoints carry at the top level. Preserved into the dit split so
+#: ``SdxlModel`` can autodetect the prediction type. Mirrors ComfyUI's
+#: ``SDXL.model_type`` markers.
+PREDICTION_MARKERS = frozenset(
+    {
+        "v_pred",
+        "ztsnr",
+        "edm_mean",
+        "edm_std",
+        "edm_vpred.sigma_max",
+        "edm_vpred.sigma_min",
+    }
+)
+
 
 def _partition(sd: dict) -> dict[str, dict]:
     """Partition the combined state dict into the four component groups."""
     unet = {k[len(UNET_PREFIX):]: v for k, v in sd.items() if k.startswith(UNET_PREFIX)}
+    # Keep the prediction-type markers (bare keys) alongside the UNet weights.
+    unet.update({k: v for k, v in sd.items() if k in PREDICTION_MARKERS})
     vae = {
         k[len(VAE_PREFIX):]: v
         for k, v in sd.items()
@@ -105,11 +122,11 @@ def download_and_split(out: Path, keep_combined: bool = False, hyper_sd: bool = 
 
     dit_dir = out / "split_files" / "diffusion_models"
     dit_dir.mkdir(parents=True, exist_ok=True)
-    _save(dit_dir / "illustrious_unet.safetensors", unet)
+    _save(dit_dir / "sdxl_unet.safetensors", unet)
 
     vae_dir = out / "split_files" / "vae"
     vae_dir.mkdir(parents=True, exist_ok=True)
-    _save(vae_dir / "illustrious_vae.safetensors", vae)
+    _save(vae_dir / "sdxl_vae.safetensors", vae)
 
     te_dir = out / "split_files" / "text_encoders"
     te_dir.mkdir(parents=True, exist_ok=True)
@@ -133,8 +150,8 @@ def download_and_split(out: Path, keep_combined: bool = False, hyper_sd: bool = 
         print(f"{'hyper-sd':12s} -> {dest}")
 
     print("\nDone. Point thenoise at:")
-    print(f"  --dit            {dit_dir / 'illustrious_unet.safetensors'}")
-    print(f"  --vae            {vae_dir / 'illustrious_vae.safetensors'}")
+    print(f"  --dit            {dit_dir / 'sdxl_unet.safetensors'}")
+    print(f"  --vae            {vae_dir / 'sdxl_vae.safetensors'}")
     print(f"  --text-encoder   {te_dir / 'clip_l_g.safetensors'}")
     print(f"  --lora-dir       (optional)")
 
@@ -160,7 +177,7 @@ def _remove_combined(combined: Path, combined_dir: Path) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     ap = argparse.ArgumentParser(description="Download + split Illustrious-XL v2.0")
-    ap.add_argument("--out", default="./models/illustrious", help="output directory")
+    ap.add_argument("--out", default="./models/sdxl", help="output directory")
     ap.add_argument(
         "--keep-combined-safetensors",
         action="store_true",

@@ -21,20 +21,23 @@ Usage:
     python scripts/download_civitai.py 1331249 --out ./models/bubbli
     python scripts/download_civitai.py 1331249 5678 --base anima --base krea --out ./models/foo
     python scripts/download_civitai.py 1331249 --no-base-model-filter --keep-combined
+    python scripts/download_civitai.py "https://civitai.com/models/1302719/bla-bla-bla?modelVersionId=1591915"
 
-Example model: https://civitai.com/models/1331249/bubbli-cartoon-il
+Model targets may be a bare model ID or a full Civitai URL. A URL with
+``?modelVersionId=<id>`` downloads only that specific version.
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import urllib.parse
 from pathlib import Path
 from typing import Sequence
 
 from safetensors.torch import load_file, save_file
 
 try:
-    from civitapy import CivitAIClient, CivitAIError, Model
+    from civitapy import CivitAIClient, CivitAIError, Model, ModelVersion
 except ImportError:
     raise SystemExit(
         "civitapy is required to download from Civitai.\n"
@@ -43,11 +46,48 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def parse_target(s: str) -> tuple[int, int | None]:
+    """Parse a model ID or Civitai URL into ``(model_id, version_id_or_None)``.
+
+    Accepts a bare model ID (``1331249``), a model URL
+    (``.../models/<id>/<slug>``), and a URL pinning one version
+    (``...?modelVersionId=<id>``), on any Civitai domain (``civitai.com``,
+    ``civitai.red``, ...).
+    """
+    try:
+        return int(s), None
+    except ValueError:
+        pass
+    parts = [p for p in urllib.parse.urlsplit(s).path.split("/") if p]
+    if len(parts) < 2 or parts[0] != "models":
+        raise ValueError(f"not a Civitai model URL or model ID: {s!r}")
+    model_id = int(parts[1])
+    version_id = None
+    qs = urllib.parse.parse_qs(urllib.parse.urlsplit(s).query)
+    if "modelVersionId" in qs:
+        version_id = int(qs["modelVersionId"][0])
+    return model_id, version_id
+
 #: Stability-AI SDXL layout key prefixes inside a combined checkpoint.
 UNET_PREFIX = "model.diffusion_model."
 VAE_PREFIX = "first_stage_model."
 CLIP_L_PREFIX = "conditioner.embedders.0.transformer."
 CLIP_G_PREFIX = "conditioner.embedders.1.model."
+
+#: Prediction-type marker tensors (``v_pred``, ``edm_mean``/``edm_std``, ...) that
+#: some SDXL checkpoints carry at the top level. Preserved into the dit split so
+#: ``SdxlModel`` can autodetect the prediction type.
+PREDICTION_MARKERS = frozenset(
+    {
+        "v_pred",
+        "ztsnr",
+        "edm_mean",
+        "edm_std",
+        "edm_vpred.sigma_max",
+        "edm_vpred.sigma_min",
+    }
+)
 
 #: Human-friendly ``--base`` choices mapped to the Civitai base-model strings
 #: each one covers. Kept in this script (not derived from the model catalog);
@@ -94,6 +134,9 @@ def split_checkpoint(checkpoint: str, out: Path, name: str) -> tuple[Path, Path,
         for k, v in sd.items()
         if k.startswith(UNET_PREFIX)
     }
+    # Keep prediction-type marker tensors (``v_pred``, ``edm_mean``/``edm_std``,
+    # ...) so ``SdxlModel`` can autodetect the prediction type from the dit file.
+    unet.update({k: v for k, v in sd.items() if k in PREDICTION_MARKERS})
     vae = {
         k[len(VAE_PREFIX):]: v
         for k, v in sd.items()
@@ -160,36 +203,21 @@ def _already_split(client: CivitAIClient, model_id: int, name: str) -> bool:
     return True
 
 
-def download_model(model_id: int, out: Path, *, base_models: Sequence[str] | None, keep_combined: bool, name: str, progress: bool) -> None:
+def _already_split_version(client: CivitAIClient, version_id: int, name: str) -> bool:
+    """True if a single version already has all three split files."""
+    version = ModelVersion(**client.model_versions_get(version_id))
+    model = Model(**client.models_get(version.model_id))
+    base = Path(client._version_download_dir(model, version.base_model))
+    return all(p.exists() for p in _split_paths(base, name))
+
+
+def _split_downloaded(client: CivitAIClient, model_id: int, paths: Sequence[str], name: str) -> None:
+    """Split every downloaded combined checkpoint under ``paths``.
+
+    Prints a thenoise block per split checkpoint. Non-checkpoint or non-SDXL
+    files are left in place (with a message) rather than failing the download.
+    """
     import os
-
-    if not os.environ.get("CIVITAI_TOKEN"):
-        raise SystemExit(
-            "CIVITAI_TOKEN is not set. Civitai requires a bearer token to download model files.\n"
-            "Create an API key at https://civitai.com/account (Account -> API Keys), then set it:\n"
-            "  export CIVITAI_TOKEN=<your-key>"
-        )
-
-    out.mkdir(parents=True, exist_ok=True)
-
-    client = CivitAIClient(
-        download_dir=str(out),
-        base_models=list(base_models) if base_models else None,
-    )
-    if base_models:
-        print(f"Base-model filter: {', '.join(base_models)}")
-    else:
-        print("Base-model filter: none (downloading every version)")
-
-    if _already_split(client, model_id, name):
-        print(f"Model {model_id} already downloaded and split — skipping.")
-        return
-
-    print(f"Downloading civitai model {model_id} ...")
-    paths = client.download_model(model_id, progress=progress)
-    if not paths:
-        print("Nothing downloaded — no version matched the filter.")
-        return
 
     for path in sorted(map(Path, paths)):
         print(f"Downloaded: {path}")
@@ -234,13 +262,60 @@ def download_model(model_id: int, out: Path, *, base_models: Sequence[str] | Non
         print(f"  --text-encoder   {os.path.relpath(te)}")
 
 
+def download_model(model_id: int, out: Path, *, base_models: Sequence[str] | None, keep_combined: bool, name: str, progress: bool, version_id: int | None = None) -> None:
+    import os
+
+    if not os.environ.get("CIVITAI_TOKEN"):
+        raise SystemExit(
+            "CIVITAI_TOKEN is not set. Civitai requires a bearer token to download model files.\n"
+            "Create an API key at https://civitai.com/account (Account -> API Keys), then set it:\n"
+            "  export CIVITAI_TOKEN=<your-key>"
+        )
+
+    out.mkdir(parents=True, exist_ok=True)
+
+    client = CivitAIClient(
+        download_dir=str(out),
+        base_models=list(base_models) if base_models else None,
+    )
+    if base_models:
+        print(f"Base-model filter: {', '.join(base_models)}")
+    else:
+        print("Base-model filter: none (downloading every version)")
+
+    if version_id is not None:
+        if _already_split_version(client, version_id, name):
+            print(f"Model {model_id} version {version_id} already downloaded and split — skipping.")
+            return
+        print(f"Downloading civitai model {model_id} version {version_id} ...")
+        paths = client.download_model_version(version_id, progress=progress)
+        if not paths:
+            print("Nothing downloaded — version does not match the base-model filter.")
+            return
+    else:
+        if _already_split(client, model_id, name):
+            print(f"Model {model_id} already downloaded and split — skipping.")
+            return
+        print(f"Downloading civitai model {model_id} ...")
+        paths = client.download_model(model_id, progress=progress)
+        if not paths:
+            print("Nothing downloaded — no version matched the filter.")
+            return
+
+    _split_downloaded(client, model_id, paths, name)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     # httpx (used by civitapy) logs every connection/retry at INFO; keep that
     # noise out of the downloader's output.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     ap = argparse.ArgumentParser(description="Download + split Civitai checkpoints via civitapy")
-    ap.add_argument("model_ids", type=int, nargs="+", help="Civitai model ID(s) to download (e.g. 1331249)")
+    ap.add_argument(
+        "targets", nargs="+",
+        help="Civitai model ID(s) or full model URL(s); a URL with "
+             "?modelVersionId=<id> downloads only that version",
+    )
     ap.add_argument("--out", default="./models/civitai", help="output directory")
     ap.add_argument(
         "--name", default="model",
@@ -280,7 +355,8 @@ def main() -> None:
     else:
         base_models = DEFAULT_BASE_MODELS
 
-    for model_id in args.model_ids:
+    for target in args.targets:
+        model_id, version_id = parse_target(target)
         download_model(
             model_id,
             Path(args.out),
@@ -288,6 +364,7 @@ def main() -> None:
             keep_combined=args.keep_combined,
             name=args.name,
             progress=not args.no_progress,
+            version_id=version_id,
         )
 
 

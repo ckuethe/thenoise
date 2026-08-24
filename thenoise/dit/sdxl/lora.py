@@ -1,4 +1,4 @@
-# Illustrious (SDXL) Hyper-SD step-reduction LoRA support.
+# SDXL Hyper-SD step-reduction LoRA support.
 #
 # Hyper-SD (https://huggingface.co/ByteDance/Hyper-SD) ships SDXL LoRAs that
 # reduce the required denoising steps to 2/4/8 (or 8/12 CFG-preserved) while
@@ -66,7 +66,7 @@ _UNET_MAP_BASIC = (
 
 
 def _unet_to_diffusers_sdxl() -> Dict[str, str]:
-    """Return ``diffusers_key -> ldm_key`` for the Illustrious SDXL UNet.
+    """Return ``diffusers_key -> ldm_key`` for the SDXL UNet.
 
     Mirrors ComfyUI's ``unet_to_diffusers`` for the SDXL config
     (num_res_blocks=[2,2,2], channel_mult=[1,2,4], transformer_depth

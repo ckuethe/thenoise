@@ -1,4 +1,4 @@
-# Illustrious (SDXL) discrete sampler helpers.
+# SDXL discrete sampler helpers.
 #
 # SDXL is an epsilon-prediction (noise) model sampled with a discrete DDIM/euler
 # schedule. The beta schedule is ComfyUI's "linear" (= diffusers

@@ -365,6 +365,19 @@ class DiffusionModel(ABC):
             )
         return self._upscaler, self._adaptor
 
+    def supports_latent_upscale(self) -> bool:
+        """True if this model can run latent (refined) upscaling.
+
+        Defaults to ``_upscale_format()`` succeeding; models that cannot (e.g.
+        SDXL has no 4-channel Sesqui weights) raise ``NotImplementedError`` there,
+        so the pipeline degrades refined upscale to pixel-only.
+        """
+        try:
+            self._upscale_format()
+            return True
+        except NotImplementedError:
+            return False
+
     # ------------------------------------------------------------ decode
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
         """Shared VAE decode — the final generation step.

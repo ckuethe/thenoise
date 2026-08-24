@@ -1,4 +1,4 @@
-# Illustrious text encoders: the SDXL dual-CLIP pair.
+# SDXL text encoders: the dual-CLIP pair.
 #
 # The checkpoint stores the two CLIP encoders under ``conditioner.embedders``:
 #   embedders.0 -> CLIP-L (HF ``CLIPTextModel`` layout, 768 dim, 12 layers)
@@ -196,7 +196,7 @@ def build_clip_g(sd, device="cpu", dtype=torch.bfloat16):
     """Build and load the CLIP-G (OpenCLIP bigG) text tower from a bare state dict.
 
     The checkpoint stores CLIP-G in OpenCLIP layout (fused ``in_proj_weight``,
-    ``transformer.resblocks.*``) and the Illustrious UNet was trained against the
+    ``transformer.resblocks.*``) and the SDXL UNet was trained against the
     open_clip-style text tower, so we load the weights into our OpenCLIP-shaped
     ``OpenClipTextTransformer``. The forward returns the penultimate hidden
     state (layer ``layers-2``) for cross-attention and

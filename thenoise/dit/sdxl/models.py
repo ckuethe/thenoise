@@ -1,6 +1,6 @@
-# Illustrious (SDXL-based) LDM UNet architecture.
+# SDXL LDM UNet architecture.
 #
-# Illustrious-XL is a Stable Diffusion XL derivative whose UNet keeps the classic
+# Stable Diffusion XL's UNet keeps the classic
 # CompVis/LDM ``UNetModel`` layout (``input_blocks`` / ``middle_block`` /
 # ``output_blocks`` with LDM-style resnets and diffusers-style transformer
 # blocks) but reallocates the transformer depth: attention is dropped entirely
@@ -239,8 +239,8 @@ class Upsample(nn.Module):
         return self.conv(x)
 
 
-class IllustriousUNet(nn.Module):
-    """The Illustrious SDXL UNet (LDM ``UNetModel`` layout).
+class SdxlUNet(nn.Module):
+    """The SDXL UNet (LDM ``UNetModel`` layout).
 
     Args:
         in_channels: latent channels (4).

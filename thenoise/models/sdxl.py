@@ -1,11 +1,18 @@
-"""Illustrious (SDXL-based anime) adapter.
+"""SDXL adapter (vanilla SDXL and SDXL fine-tunes).
 
-Illustrious-XL is a Stable Diffusion XL derivative: an SDXL LDM UNet (with the
-Illustrious transformer-depth reallocation), the SDXL dual-CLIP text encoders
-(CLIP-L + CLIP-G -> 2048-dim cross-attention, CLIP-G pooled for the ADM vector),
-and the SDXL VAE (4 channels, 8x compression). It is a discrete
-noise-prediction (epsilon) model sampled with the shared ``euler`` sampler over
-a discrete DDIM-style sigma grid.
+Stable Diffusion XL (and its fine-tune variants such as Illustrious-XL) is an
+SDXL LDM UNet (transformer-depth ``[0,0,2,2,10,10]``), the SDXL dual-CLIP text
+encoders (CLIP-L + CLIP-G -> 2048-dim cross-attention, CLIP-G pooled for the
+ADM vector), and the SDXL VAE (4 channels, 8x compression). It is a discrete
+model sampled with the shared ``euler`` sampler over a discrete DDIM-style
+sigma grid.
+
+The architecture is identical across all SDXL checkpoints, so any SDXL model
+(vanilla ``stabilityai/stable-diffusion-xl-base-1.0``, anime fine-tunes like
+Illustrious-XL / Juggernaut, etc.) loads with the same adapter. The prediction
+type (epsilon vs v-prediction) is autodetected from marker tensors in the
+checkpoint, exactly like ComfyUI's ``SDXL.model_type``; continuous-EDM (Playground
+V2.5) and zsnr variants are detected but rejected until supported.
 """
 from __future__ import annotations
 
@@ -14,22 +21,22 @@ from typing import List, Optional
 
 import torch
 
-from thenoise.dit.illustrious.models import timestep_embedding
-from thenoise.dit.illustrious.sampling import (
+from thenoise.dit.sdxl.models import timestep_embedding
+from thenoise.dit.sdxl.sampling import (
     discrete_timesteps,
     get_alphas_cumprod,
     get_sigmas,
     sigmas_for_timesteps,
 )
-from thenoise.dit.illustrious.text import OpenClipTextTransformer
-from thenoise.dit.illustrious.utils import (
-    find_illustrious_tokenizer_dir,
-    load_illustrious_dit,
-    load_illustrious_text_encoders,
-    load_illustrious_tokenizer,
+from thenoise.dit.sdxl.text import OpenClipTextTransformer
+from thenoise.dit.sdxl.utils import (
+    find_sdxl_tokenizer_dir,
+    load_sdxl_dit,
+    load_sdxl_text_encoders,
+    load_sdxl_tokenizer,
 )
-from thenoise.dit.illustrious.lora import convert_hyper_sd_lora, lora_uses_diffusers_unet_keys
-from thenoise.dit.illustrious.vae import AutoencoderKLIllustrious, load_illustrious_vae
+from thenoise.dit.sdxl.lora import convert_hyper_sd_lora, lora_uses_diffusers_unet_keys
+from thenoise.dit.sdxl.vae import AutoencoderKLSdxl, load_sdxl_vae
 from thenoise.models.base import Conditioning, DiffusionModel, Step, normalize_keys
 from thenoise.models.config import ModelConfig, SamplingParams
 from thenoise.utils.math import round_up
@@ -41,12 +48,12 @@ POOLED_DIM = 1280
 SIZE_EMBED_DIM = 1536
 
 
-class IllustriousModel(DiffusionModel):
-    name = "illustrious"
+class SdxlModel(DiffusionModel):
+    name = "sdxl"
 
     # SDXL defaults: ~28 euler steps, CFG ~5.5, 1024x1024. This matches the
-    # widely-recommended Illustrious settings; higher steps / CFG tend to
-    # over-saturate and hurt prompt adherence rather than help.
+    # widely-recommended settings for vanilla SDXL and anime fine-tunes; higher
+    # steps / CFG tend to over-saturate and hurt prompt adherence rather than help.
     DEFAULT_STEPS = 28
     DEFAULT_GUIDANCE_SCALE = 5.5
     DEFAULT_WIDTH = 1024
@@ -56,9 +63,28 @@ class IllustriousModel(DiffusionModel):
     # ``denoise_step`` returns the predicted noise and the schedule's deltas are
     # sigma differences.
     SAMPLER = "euler"
-    # SDXL is a discrete-epsilon model; only the euler solver is valid. A
-    # requested ``er_sde`` falls back to euler with a warning (see create_sampler).
+    # SDXL is a discrete model; only the euler solver is valid. A requested
+    # ``er_sde`` (a stochastic flow-oriented solver) produces poor output on
+    # SDXL, so it falls back to euler with a warning (see ``create_sampler``).
     SUPPORTED_SAMPLERS = ["euler"]
+
+    #: Prediction types detected from the checkpoint's marker keys (ComfyUI's
+    #: ``SDXL.model_type``). Epsilon and v-prediction share the discrete 1000-step
+    #: sigma grid; they differ only in how the UNet output maps to a velocity.
+    PREDICTION_EPSILON = "epsilon"
+    PREDICTION_V_PREDICTION = "v_prediction"
+
+    #: Prediction-type marker tensors carried by some SDXL checkpoints. ``v_pred``
+    #: marks a v-prediction model; the rest flag continuous-EDM / zsnr variants
+    #: that thenoise does not (yet) support.
+    _PREDICTION_MARKERS = (
+        "v_pred",
+        "ztsnr",
+        "edm_mean",
+        "edm_std",
+        "edm_vpred.sigma_max",
+        "edm_vpred.sigma_min",
+    )
 
     # 4-channel SDXL latent, 8x spatial compression.
     LATENT_CHANNELS = 4
@@ -68,7 +94,7 @@ class IllustriousModel(DiffusionModel):
 
     @staticmethod
     def detect(f) -> bool:
-        """True if this handle is an SDXL LDM UNet (Illustrious-compatible).
+        """True if this handle is an SDXL LDM UNet.
 
         The classic CompVis ``UNetModel`` layout is uniquely identified by the
         ``input_blocks`` / ``middle_block`` block lists together with the
@@ -83,6 +109,45 @@ class IllustriousModel(DiffusionModel):
         has_time = any(k.startswith("time_embed.") for k in keys)
         return has_input and has_middle and has_label and has_time
 
+    @staticmethod
+    def _read_dit_keys(dit_path: str) -> list[str]:
+        """Read a dit file's tensor keys (header only, no tensor data)."""
+        from thenoise.utils.safetensors import MemoryEfficientSafeOpen
+
+        with MemoryEfficientSafeOpen(dit_path) as f:
+            return list(f.keys())
+
+    @staticmethod
+    def prediction_type_from_keys(keys) -> str:
+        """Prediction type from a checkpoint's tensor keys.
+
+        Mirrors ComfyUI's ``SDXL.model_type``, which reads marker tensors from the
+        state dict rather than the (identical) UNet architecture:
+        ``edm_mean``/``edm_std`` -> EDM, ``edm_vpred.*`` -> continuous
+        V_PREDICTION_EDM, ``v_pred`` -> v-prediction (``ztsnr`` -> zsnr variant),
+        otherwise epsilon. Continuous-EDM and zsnr variants are detected but not
+        yet supported, so they raise a clear error instead of rendering wrong.
+        """
+        keys = set(normalize_keys(keys))
+        if "edm_mean" in keys and "edm_std" in keys:
+            raise NotImplementedError(
+                "SDXL checkpoint uses EDM prediction (Playground V2.5), which "
+                "thenoise does not support yet"
+            )
+        if "edm_vpred.sigma_max" in keys:
+            raise NotImplementedError(
+                "SDXL checkpoint uses continuous V_PREDICTION_EDM, which thenoise "
+                "does not support yet"
+            )
+        if "v_pred" in keys:
+            if "ztsnr" in keys:
+                raise NotImplementedError(
+                    "SDXL checkpoint uses zsnr v-prediction, which thenoise does "
+                    "not support yet"
+                )
+            return SdxlModel.PREDICTION_V_PREDICTION
+        return SdxlModel.PREDICTION_EPSILON
+
     def __init__(
         self,
         *,
@@ -95,26 +160,45 @@ class IllustriousModel(DiffusionModel):
         # faster with negligible precision loss for inference.
         torch.set_float32_matmul_precision("high")
 
-        logger.info("Loading Illustrious UNet from %s", config.dit_path)
-        self.dit = load_illustrious_dit(config.dit_path, device=config.device, dtype=config.dtype)
-        self.dit.eval().requires_grad_(False)
+        if config.checkpoint_path:
+            # Single combined checkpoint: partition it in memory and load all
+            # three components from the one file (no splitting needed).
+            from thenoise.dit.sdxl.checkpoint import SDXLCheckpoint
 
-        logger.info(
-            "Loading Illustrious text encoders (CLIP-L + CLIP-G) from %s",
-            config.text_encoder_path,
-        )
-        self.clip_l, self.clip_g = load_illustrious_text_encoders(
-            config.text_encoder_path, device=config.device, dtype=config.dtype
-        )
+            logger.info("Loading combined SDXL checkpoint %s", config.checkpoint_path)
+            ckpt = SDXLCheckpoint(config.checkpoint_path, device=config.device, dtype=config.dtype)
+            self.dit, self.clip_l, self.clip_g, self.vae = ckpt.load_components()
+            # Prediction type is autodetected from the checkpoint's marker keys.
+            self.prediction_type = self.prediction_type_from_keys(ckpt.keys)
+            self.tokenizer = load_sdxl_tokenizer()  # vendored config
+        else:
+            logger.info("Loading SDXL UNet from %s", config.dit_path)
+            self.dit = load_sdxl_dit(config.dit_path, device=config.device, dtype=config.dtype)
+            # Prediction type (epsilon / v-prediction) is autodetected from marker
+            # tensors in the checkpoint, not the UNet architecture.
+            self.prediction_type = self.prediction_type_from_keys(
+                self._read_dit_keys(config.dit_path)
+            )
+
+            logger.info(
+                "Loading SDXL text encoders (CLIP-L + CLIP-G) from %s",
+                config.text_encoder_path,
+            )
+            self.clip_l, self.clip_g = load_sdxl_text_encoders(
+                config.text_encoder_path, device=config.device, dtype=config.dtype
+            )
+            self.tokenizer = load_sdxl_tokenizer(
+                find_sdxl_tokenizer_dir(config.text_encoder_path)
+            )
+
+            logger.info("Loading SDXL VAE from %s", config.vae_path)
+            self.vae = load_sdxl_vae(self.vae_path, device=self.device, disable_mmap=True)
+
+        self.dit.eval().requires_grad_(False)
         self.clip_l.eval().requires_grad_(False)
         self.clip_g.eval().requires_grad_(False)
-        self.tokenizer = load_illustrious_tokenizer(
-            find_illustrious_tokenizer_dir(config.text_encoder_path)
-        )
-
-        logger.info("Loading Illustrious SDXL VAE from %s", config.vae_path)
-        self.vae = load_illustrious_vae(self.vae_path, device=self.device, disable_mmap=True)
         self.vae.to(self.dtype).eval().requires_grad_(False)
+        logger.info("SDXL prediction type: %s", self.prediction_type)
 
         # Discrete alphas_cumprod grid on-device, for per-step sigma lookup.
         # ComfyUI's EPS ``calculate_input`` scales the UNet input by
@@ -127,7 +211,7 @@ class IllustriousModel(DiffusionModel):
         self._y = None
         self._y_uncond = None
 
-        logger.info("Illustrious model ready on %s (%s)", config.device, config.dtype)
+        logger.info("SDXL model ready on %s (%s)", config.device, config.dtype)
 
     # ------------------------------------------------------------ kernels
     def encode_prompt(
@@ -262,15 +346,19 @@ class IllustriousModel(DiffusionModel):
         sigma = self._sigma_at(t_full).to(latents.dtype)
         scaled = latents / torch.sqrt(sigma**2 + 1)
         with torch.no_grad():
-            eps = self.dit(scaled, t_full, self._y, context)
+            out = self.dit(scaled, t_full, self._y, context)
             if guidance_scale > 1.0 and self._y_uncond is not None and cond.null is not None:
                 uncond = self.dit(
                     scaled, t_full, self._y_uncond, cond.null.to(dev, dtype=self.dtype)
                 )
-                eps = uncond + guidance_scale * (eps - uncond)
-        # ComfyUI flow euler for the EPS model: the model output (eps) IS the
-        # velocity; the sampler integrates ``x -= delta * eps``.
-        return eps
+                out = uncond + guidance_scale * (out - uncond)
+        # Map the UNet output to the euler velocity ``x -= delta * velocity``.
+        if self.prediction_type == self.PREDICTION_V_PREDICTION:
+            # ComfyUI ``V_PREDICTION``: denoised = x/(sigma^2+1) - v*sigma/sqrt(sigma^2+1),
+            # so velocity = (x - denoised)/sigma = x*sigma/(sigma^2+1) + v/sqrt(sigma^2+1).
+            return latents * sigma / (sigma**2 + 1) + out / torch.sqrt(sigma**2 + 1)
+        # ComfyUI ``EPS``: the model output (eps) IS the velocity.
+        return out
 
     def finalize_latent(self, latents: torch.Tensor, params: SamplingParams) -> torch.Tensor:
         # The denoised latent is already in the UNet's scaled space; the VAE's
@@ -280,12 +368,12 @@ class IllustriousModel(DiffusionModel):
     def resolve_size(self, width: int, height: int) -> tuple[int, int]:
         # SDXL latents are 8x compressed; round up to a multiple of 8.
         size = round_up(width, 8), round_up(height, 8)
-        # Illustrious is trained near 1024x1024; strongly off-native sizes (e.g.
-        # 512) produce incoherent output (observed: a red panda becomes a garden).
+        # SDXL is trained near 1024x1024; strongly off-native sizes (e.g. 512)
+        # produce incoherent output (observed: a red panda becomes a garden).
         if min(width, height) < 768 or max(width, height) > 1536:
             logger.warning(
-                "Illustrious is trained near 1024x1024; requested %sx%s is far "
-                "from native and may produce garbled results. Recommended ~1024x1024.",
+                "SDXL is trained near 1024x1024; requested %sx%s is far from "
+                "native and may produce garbled results. Recommended ~1024x1024.",
                 width,
                 height,
             )
@@ -293,9 +381,9 @@ class IllustriousModel(DiffusionModel):
 
     def _upscale_format(self) -> str:
         raise NotImplementedError(
-            "Illustrious (SDXL 4-channel latents) does not support latent upscale yet; "
+            "SDXL (4-channel latents) does not support latent upscale yet; "
             "no 4-channel upscaler weights are committed."
         )
 
 
-__all__ = ["IllustriousModel"]
+__all__ = ["SdxlModel"]

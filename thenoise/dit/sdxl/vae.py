@@ -1,4 +1,4 @@
-# Illustrious (SDXL) VAE — decoder-only inference.
+# SDXL VAE — decoder-only inference.
 #
 # The classic CompVis/LDM ``AutoencoderKL`` decoder shared by Stable Diffusion
 # XL. The checkpoint stores it under ``first_stage_model.`` (encoder /
@@ -161,7 +161,7 @@ class _Decoder(nn.Module):
         return h
 
 
-class AutoencoderKLIllustrious(nn.Module):
+class AutoencoderKLSdxl(nn.Module):
     """Decoder-only SDXL VAE. ``decode_to_pixels`` yields pixels in [-1, 1]."""
 
     def __init__(self, scaling_factor=SCALING_FACTOR):
@@ -187,22 +187,27 @@ class AutoencoderKLIllustrious(nn.Module):
         return img.clamp(-1.0, 1.0)
 
 
-def load_illustrious_vae(vae_path: str, device="cpu", disable_mmap=True):
-    """Build and load the SDXL VAE decoder from a safetensors file.
+def build_sdxl_vae(vae_sd: dict, device="cpu"):
+    """Build and load the SDXL VAE decoder from a bare ``decoder.*`` state dict.
 
-    ``vae_path`` holds ``post_quant_conv.*`` and ``decoder.*`` (the splitter
+    ``vae_sd`` holds ``post_quant_conv.*`` and ``decoder.*`` keys (the splitter
     strips ``first_stage_model.``).
     """
-    from thenoise.utils.safetensors import load_safetensors
-
-    vae = AutoencoderKLIllustrious()
-    sd = load_safetensors(vae_path, device=str(device), disable_mmap=disable_mmap)
-    info = vae.load_state_dict(sd, strict=True, assign=True)
+    vae = AutoencoderKLSdxl()
+    info = vae.load_state_dict(vae_sd, strict=True, assign=True)
     if info.unexpected_keys or info.missing_keys:
         raise RuntimeError(
             f"SDXL VAE checkpoint did not match: "
             f"missing={info.missing_keys[:10]}, unexpected={info.unexpected_keys[:10]}"
         )
     vae.to(device)
-    logger.info("Loaded Illustrious SDXL VAE")
+    logger.info("Loaded SDXL VAE")
     return vae
+
+
+def load_sdxl_vae(vae_path: str, device="cpu", disable_mmap=True):
+    """Build and load the SDXL VAE decoder from a safetensors file."""
+    from thenoise.utils.safetensors import load_safetensors
+
+    sd = load_safetensors(vae_path, device=str(device), disable_mmap=disable_mmap)
+    return build_sdxl_vae(sd, device)

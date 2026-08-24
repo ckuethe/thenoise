@@ -13,7 +13,7 @@ import pytest
 
 from thenoise.models import (
     AnimaModel,
-    IllustriousModel,
+    SdxlModel,
     Krea2Model,
     ZImageModel,
     resolve,
@@ -108,9 +108,9 @@ def test_anima_rejects_zimage_keys():
     assert AnimaModel.detect(_FakeHandle(_ZIMAGE_KEYS)) is False
 
 
-# Illustrious is an SDXL LDM UNet: ``input_blocks`` / ``middle_block`` block
+# SDXL is an SDXL LDM UNet: ``input_blocks`` / ``middle_block`` block
 # lists plus the ``label_emb`` / ``time_embed`` conditioning MLPs.
-_ILLUSTRIOUS_KEYS = [
+_SDXL_KEYS = [
     "model.diffusion_model.input_blocks.0.0.weight",
     "model.diffusion_model.middle_block.1.transformer_blocks.0.attn1.to_q.weight",
     "model.diffusion_model.label_emb.0.0.weight",
@@ -118,9 +118,9 @@ _ILLUSTRIOUS_KEYS = [
 ]
 
 # An SDXL-style checkpoint repackaged under the ComfyUI ``model.diffusion_model.``
-# wrapper (already covered by ``_ILLUSTRIOUS_KEYS``), plus a bare (unwrapped)
+# wrapper (already covered by ``_SDXL_KEYS``), plus a bare (unwrapped)
 # variant.
-_ILLUSTRIOUS_BARE_KEYS = [
+_SDXL_BARE_KEYS = [
     "input_blocks.0.0.weight",
     "middle_block.1.transformer_blocks.0.attn1.to_q.weight",
     "label_emb.0.0.weight",
@@ -128,30 +128,30 @@ _ILLUSTRIOUS_BARE_KEYS = [
 ]
 
 
-def test_illustrious_detect_true():
-    assert IllustriousModel.detect(_FakeHandle(_ILLUSTRIOUS_KEYS)) is True
+def test_sdxl_detect_true():
+    assert SdxlModel.detect(_FakeHandle(_SDXL_KEYS)) is True
 
 
-def test_illustrious_detect_true_on_bare_keys():
-    assert IllustriousModel.detect(_FakeHandle(_ILLUSTRIOUS_BARE_KEYS)) is True
+def test_sdxl_detect_true_on_bare_keys():
+    assert SdxlModel.detect(_FakeHandle(_SDXL_BARE_KEYS)) is True
 
 
-def test_illustrious_rejects_other_models():
-    assert IllustriousModel.detect(_FakeHandle(_ANIMA_KEYS)) is False
-    assert IllustriousModel.detect(_FakeHandle(_KREA2_KEYS)) is False
-    assert IllustriousModel.detect(_FakeHandle(_ZIMAGE_KEYS)) is False
+def test_sdxl_rejects_other_models():
+    assert SdxlModel.detect(_FakeHandle(_ANIMA_KEYS)) is False
+    assert SdxlModel.detect(_FakeHandle(_KREA2_KEYS)) is False
+    assert SdxlModel.detect(_FakeHandle(_ZIMAGE_KEYS)) is False
 
 
-def test_other_models_reject_illustrious():
-    assert AnimaModel.detect(_FakeHandle(_ILLUSTRIOUS_KEYS)) is False
-    assert Krea2Model.detect(_FakeHandle(_ILLUSTRIOUS_KEYS)) is False
-    assert ZImageModel.detect(_FakeHandle(_ILLUSTRIOUS_KEYS)) is False
+def test_other_models_reject_sdxl():
+    assert AnimaModel.detect(_FakeHandle(_SDXL_KEYS)) is False
+    assert Krea2Model.detect(_FakeHandle(_SDXL_KEYS)) is False
+    assert ZImageModel.detect(_FakeHandle(_SDXL_KEYS)) is False
 
 
-def test_resolve_illustrious(tmp_path):
-    p = tmp_path / "illustrious.safetensors"
-    _write_safetensors(p, _ILLUSTRIOUS_KEYS)
-    assert resolve(str(p)) is IllustriousModel
+def test_resolve_sdxl(tmp_path):
+    p = tmp_path / "sdxl.safetensors"
+    _write_safetensors(p, _SDXL_KEYS)
+    assert resolve(str(p)) is SdxlModel
 
 
 # A Krea2 checkpoint repackaged under ComfyUI's generic "model.diffusion_model."

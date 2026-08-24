@@ -3,10 +3,10 @@
 Source: https://huggingface.co/ByteDance/Hyper-SD
   Hyper-SDXL-8steps-CFG-lora.safetensors
 
-Hyper-SD is a trajectory-segmented consistency distillation that lets SDXL /
-Illustrious render in 8 steps instead of ~28 while keeping quality. This is the
+Hyper-SD is a trajectory-segmented consistency distillation that lets SDXL
+render in 8 steps instead of ~28 while keeping quality. This is the
 CFG-preserved variant (supports guidance 5-8), which fits thenoise's CFG-based
-sampler. The Illustrious model auto-converts its diffusers-keyed UNet LoRA to
+sampler. The SDXL model auto-converts its diffusers-keyed UNet LoRA to
 our LDM key naming, so it works as a normal ``--lora``.
 
 Use at 8 steps::
@@ -31,7 +31,7 @@ FILES = {
 def main() -> None:
     ap = argparse.ArgumentParser(description="Download Hyper-SD SDXL LoRAs")
     ap.add_argument(
-        "--out", default="./models/illustrious/lora",
+        "--out", default="./models/sdxl/lora",
         help="output directory (usable as the model's --lora-dir)",
     )
     ap.add_argument(

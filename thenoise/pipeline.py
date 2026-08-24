@@ -39,6 +39,7 @@ without one, only ``refined`` factors <= 2 are available.
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 from dataclasses import dataclass, replace
 from typing import Optional, Tuple
@@ -64,6 +65,8 @@ from thenoise.postprocess.film_grain import film_grain
 from thenoise.postprocess.nyquist import nyquist_notch
 from thenoise.postprocess.rcas import rcas
 from thenoise.utils.png import build_pnginfo
+
+logger = logging.getLogger(__name__)
 
 
 # Largest side used for the edit output size when neither width nor height is
@@ -511,6 +514,17 @@ class PipelineController:
                 f"upscale_type must be 'refined' or 'no-refiner', "
                 f"got {upscale_type!r}"
             )
+        # Models without a latent upscaler (e.g. SDXL) cannot do ``refined``;
+        # degrade it to pixel-only ``no-refiner`` so ``--upscale`` still works.
+        if upscale_type == "refined" and not getattr(
+            self.model, "supports_latent_upscale", lambda: True
+        )():
+            logger.warning(
+                "%s does not support latent (refined) upscale; falling back to "
+                "pixel-only upscale (requires a pixel upscaler).",
+                self.model.name,
+            )
+            upscale_type = "no-refiner"
         if not 0.0 < factor <= 8.0:
             raise ValueError("upscale_factor must be in (0.0, 8.0]")
         scale = self._pixel_upscalers.scale(pixel_upscaler)

@@ -32,8 +32,8 @@ def create_sampler(name: str, model) -> Sampler:
 
     A model may declare ``SUPPORTED_SAMPLERS`` (list of names). If the requested
     ``name`` is a known sampler but not in that list, warn and fall back to the
-    model's ``SAMPLER`` default instead of producing a wrong result (e.g. a flow
-    solver like ``er_sde`` on a discrete-epsilon model such as SDXL).
+    model's ``SAMPLER`` default instead of producing a wrong result. Most models
+    do not declare it, so any registered sampler is usable.
 
     Raises ``ValueError`` for an unknown sampler name.
     """
