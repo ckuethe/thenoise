@@ -28,6 +28,7 @@ from .inference_adaptors import (
     LatentFormatAdaptor,
     make_flux,
     make_flux2,
+    make_identity,
     make_ideogram4,
     make_sdxl,
     make_wan21,
@@ -48,7 +49,10 @@ _UPSCALER_FORMATS = {
     "wan21": (make_wan21, "upscaler_Wan21.safetensors", 16),
     "flux":  (make_flux,  "upscaler_flux.safetensors", 16),
     "flux2": (make_flux2, "upscaler_flux2.safetensors", 32),
-    "sdxl":  (make_sdxl,  "upscaler_SDXL.safetensors", 4),
+    # SDXL pipeline latents are already scaled (raw * 0.13025) = Sesqui's trained
+    # space, so SDXL needs an identity adaptor (NOT make_sdxl's affine, which is
+    # for ComfyUI's raw node latents).
+    "sdxl":  (lambda: make_identity(4), "upscaler_SDXL.safetensors", 4),
     # "ideogram4":(make_ideogram4, "upscaler_ideogram4.safetensors", 32),  # not yet committed
 }
 

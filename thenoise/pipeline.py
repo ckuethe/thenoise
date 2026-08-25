@@ -609,50 +609,14 @@ class PipelineController:
             z_up = adaptor.from_vae_latent(raw_up.float()).to(model.dtype)
 
         # One short low-strength refine denoise at the upscaled size. The refine
-        # runs on an independent schedule (see ``_refine``), so the original
-        # ``steps`` count is deliberately NOT forwarded.
+        # runs on an independent schedule (see ``refine_latents``), so the
+        # original ``steps`` count is deliberately NOT forwarded.
         up_params = replace(
             params,
             height=scale * params.height,
             width=scale * params.width,
         )
-        return self._refine(z_up, cond, up_params)
-
-    def _refine(
-        self,
-        z: torch.Tensor,
-        cond: Conditioning,
-        params: SamplingParams,
-    ) -> torch.Tensor:
-        """One low-strength refine denoise step on an already-clean latent."""
-        model = self.model
-        refine_steps = model.REFINE_STEPS
-        denoise = model.REFINE_DENOISE
-        new_steps = int(refine_steps / denoise)  # int(1/0.1) = 10
-
-        # Last ``refine_steps`` steps of an independent ``new_steps`` schedule.
-        refine_params = replace(params, steps=new_steps)
-        full = model.schedule(refine_params)
-        sub = full[-refine_steps:]
-        strength = float(sub[0].t)  # sigma_hat == the step's timestep
-
-        # ComfyUI CONST noise scaling: x = sigma*noise + (1-sigma)*z.
-        generator = torch.Generator(device=model.device).manual_seed(params.seed)
-        noise = torch.randn_like(z, generator=generator)
-        noised = strength * noise + (1.0 - strength) * z
-
-        # NOTE: this refine pass runs WITHOUT the reference image. ``ref`` is not
-        # forwarded, so ``prepare_latent`` stashes ``_ref_tokens``/``_ref_ids`` = None
-        # and the refine denoise is completely unconditioned on the edit reference.
-        # For FluxKlein this is a deliberate simplification — in practice the
-        # low-strength refine shows no visible ill effect — but keep it in mind if
-        # the refine quality is ever revisited.
-        x = model.prepare_latent(noised, cond, refine_params)
-        solver = EulerSampler(model)
-        x = solver.sample(
-            x, sub, cond, params.guidance_scale, params.seed, desc="refining"
-        )
-        return model.finalize_latent(x, refine_params)
+        return model.refine_latents(z_up, cond, up_params)
 
     # ---------------------------------------------------------- postprocess
     def postprocess(

@@ -17,6 +17,7 @@ V2.5) and zsnr variants are detected but rejected until supported.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import List, Optional
 
 import torch
@@ -39,6 +40,7 @@ from thenoise.dit.sdxl.lora import convert_hyper_sd_lora, lora_uses_diffusers_un
 from thenoise.dit.sdxl.vae import AutoencoderKLSdxl, load_sdxl_vae
 from thenoise.models.base import Conditioning, DiffusionModel, Step, normalize_keys
 from thenoise.models.config import ModelConfig, SamplingParams
+from thenoise.samplers.euler import EulerSampler
 from thenoise.utils.math import round_up
 
 logger = logging.getLogger(__name__)
@@ -292,6 +294,15 @@ class SdxlModel(DiffusionModel):
             parts.append(timestep_embedding(t, 256).to(torch.float32))
         return torch.cat(parts, dim=0).flatten().unsqueeze(0).to(dev)
 
+    def _set_adm(self, cond: Conditioning, height: int, width: int) -> None:
+        """Build the cached per-step ADM vector (pooled text + size embedding)."""
+        size_embeds = self._size_embedding(height, width)
+        self._y = torch.cat([cond.pooled, size_embeds], dim=-1).to(self.dtype)
+        if cond.null is not None and cond.neg_pooled is not None:
+            self._y_uncond = torch.cat([cond.neg_pooled, size_embeds], dim=-1).to(self.dtype)
+        else:
+            self._y_uncond = None
+
     def prepare_latent(
         self,
         latents: torch.Tensor,
@@ -303,13 +314,41 @@ class SdxlModel(DiffusionModel):
         sigmas = get_sigmas(params.steps)
         scaled = latents * sigmas[0]
 
-        size_embeds = self._size_embedding(params.height, params.width)
-        self._y = torch.cat([cond.pooled, size_embeds], dim=-1).to(self.dtype)
-        if cond.null is not None and cond.neg_pooled is not None:
-            self._y_uncond = torch.cat([cond.neg_pooled, size_embeds], dim=-1).to(self.dtype)
-        else:
-            self._y_uncond = None
+        self._set_adm(cond, params.height, params.width)
         return scaled
+
+    def refine_latents(
+        self,
+        z: torch.Tensor,
+        cond: Conditioning,
+        params: SamplingParams,
+    ) -> torch.Tensor:
+        """EDM refine for SDXL: add noise at the tail-schedule sigma, then euler.
+
+        Unlike flow models (CONST blend), SDXL adds ``sigma * noise`` and must NOT
+        re-scale a clean latent by sigma_max (``prepare_latent`` would blow it up
+        by ~26.9). We set the ADM vector directly and run the tail steps.
+        """
+        refine_steps = self.REFINE_STEPS
+        denoise = self.REFINE_DENOISE
+        new_steps = int(refine_steps / denoise)
+
+        refine_params = replace(params, steps=new_steps)
+        full = self.schedule(refine_params)
+        sub = full[-refine_steps:]
+        sigma_r = self._sigma_at(sub[0].t).to(z.dtype)
+
+        generator = torch.Generator(device=self.device).manual_seed(params.seed)
+        noise = torch.randn_like(z, generator=generator)
+        noised = z + sigma_r * noise
+
+        self._set_adm(cond, refine_params.height, refine_params.width)
+        x = noised
+        solver = EulerSampler(self)
+        x = solver.sample(
+            x, sub, cond, params.guidance_scale, params.seed, desc="refining"
+        )
+        return self.finalize_latent(x, refine_params)
 
     def schedule(self, params: SamplingParams) -> list[Step]:
         dev = torch.device(self.device)

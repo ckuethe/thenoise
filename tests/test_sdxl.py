@@ -297,3 +297,22 @@ def test_sdxl_upscaler_loads_and_runs():
     z_up = adaptor.from_vae_latent(out.float())
     assert z_up.shape == (1, 4, 128, 128)
     assert adaptor.external_channels == 4
+
+
+def test_sdxl_upscaler_adaptor_is_identity():
+    # SDXL pipeline latents are already scaled (raw * 0.13025) = Sesqui's trained
+    # space, so the adaptor must be identity. Regression: the inverted affine
+    # adaptor fed raw latents (~7.68x too large), producing a red/hue-shifted
+    # decode.
+    import torch
+
+    from thenoise.upscale import load_latent_upscaler
+
+    _, adaptor = load_latent_upscaler("sdxl", device="cpu", dtype=torch.bfloat16)
+    z = torch.randn(1, 4, 16, 16)
+    raw = adaptor.to_vae_latent(z)
+    # to_vae must be a pass-through (no scaling).
+    assert torch.allclose(raw.float(), z.float(), atol=1e-6)
+    assert torch.allclose(
+        adaptor.from_vae_latent(raw).float(), z.float(), atol=1e-6
+    )
