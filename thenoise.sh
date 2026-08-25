@@ -52,6 +52,7 @@ if ! "$VENV_DIR/bin/python" -c "import torch" &>/dev/null; then
       110500) echo gfx1150 ;;
       110501) echo gfx1151 ;;
       110502) echo gfx1152 ;;
+      110000) echo gfx1100 ;;
       *) echo "" ;;
     esac
   }
