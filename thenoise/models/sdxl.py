@@ -380,10 +380,10 @@ class SdxlModel(DiffusionModel):
         return size
 
     def _upscale_format(self) -> str:
-        raise NotImplementedError(
-            "SDXL (4-channel latents) does not support latent upscale yet; "
-            "no 4-channel upscaler weights are committed."
-        )
+        # The SesquiSDXL latent upscaler operates on 4-channel latents; the SDXL
+        # pipeline latent is ``raw * 0.13025``, which ``make_sdxl``'s affine
+        # adaptor converts to/from raw VAE space.
+        return "sdxl"
 
 
 __all__ = ["SdxlModel"]

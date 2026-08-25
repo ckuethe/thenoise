@@ -302,11 +302,11 @@ clear error until supported. The downloader preserves these marker tensors into
 the split `--dit` file; if you point at a pre-split checkpoint, re-split it so
 the markers are included.
 
-SDXL has no latent (Sesqui) upscaler, so `--upscale` in `refined` mode (the
-default) warns and falls back to pixel-only upscaling — which requires a pixel
-upscaler (run `scripts/download_esrgan.py` and pass `--pixel-upscaler PATH`). Use
-`--upscale --upscale-type no-refiner --pixel-upscaler PATH` explicitly to upscale
-SDXL output.
+SDXL supports latent (refined) upscaling via the SesquiLSR SDXL upscaler
+(`upscaler_SDXL.safetensors`, committed bf16 in `thenoise/upscale/weights/`). If
+it is missing, fetch it with `scripts/download_sesqui_sdxl.py`. The `refined`
+2x latent upscale then runs directly; factor above 2x additionally needs a pixel
+upscaler (run `scripts/download_esrgan.py` and pass `--pixel-upscaler PATH`).
 
 Download (this fetches the Illustrious-XL v2.0 checkpoint, an SDXL anime
 fine-tune; point the same files at any other SDXL model if you prefer):

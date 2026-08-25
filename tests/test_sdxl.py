@@ -270,3 +270,30 @@ def test_combined_checkpoint_requires_all_parts(tmp_path):
         ckpt._partition(
             {"model.diffusion_model.input_blocks.0.0.weight": torch.zeros(1)}
         )
+
+
+def test_sdxl_upscale_format_registered():
+    from thenoise.upscale import _UPSCALER_FORMATS
+
+    assert "sdxl" in _UPSCALER_FORMATS
+    assert _UPSCALER_FORMATS["sdxl"][1] == "upscaler_SDXL.safetensors"
+    assert _UPSCALER_FORMATS["sdxl"][2] == 4
+    # And SDXL now supports latent (refined) upscaling.
+    m = object.__new__(SdxlModel)
+    assert m._upscale_format() == "sdxl"
+    assert m.supports_latent_upscale() is True
+
+
+def test_sdxl_upscaler_loads_and_runs():
+    import torch
+
+    from thenoise.upscale import load_latent_upscaler
+
+    model, adaptor = load_latent_upscaler("sdxl", device="cpu", dtype=torch.bfloat16)
+    # SDXL canonical latent (raw * 0.13025) -> raw VAE latent -> 2x upscale -> back.
+    z = torch.randn(1, 4, 64, 64)
+    raw = adaptor.to_vae_latent(z).to(torch.bfloat16)
+    out = model(raw, (128, 128))
+    z_up = adaptor.from_vae_latent(out.float())
+    assert z_up.shape == (1, 4, 128, 128)
+    assert adaptor.external_channels == 4
