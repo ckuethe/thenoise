@@ -46,6 +46,7 @@ class ModelPaths:
     text_encoder_path: str = ""
     lora_dir: str = ""
     checkpoint_path: str = ""  # single combined SDXL checkpoint (alternative to the trio)
+    sd_zsnr: bool = False  # force zero-terminal-SNR schedule (SDXL)
 
 
 class NotLoadedError(RuntimeError):
@@ -84,6 +85,7 @@ class Runtime:
                 device=self._settings.device,
                 lora_dir=paths.lora_dir or None,
                 checkpoint_path=paths.checkpoint_path,
+                sd_zsnr=paths.sd_zsnr,
             )
         else:
             detect_path = paths.dit_path
@@ -93,6 +95,7 @@ class Runtime:
                 text_encoder_path=paths.text_encoder_path,
                 device=self._settings.device,
                 lora_dir=paths.lora_dir or None,
+                sd_zsnr=paths.sd_zsnr,
             )
 
         cls = resolve(detect_path)

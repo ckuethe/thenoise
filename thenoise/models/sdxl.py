@@ -27,6 +27,7 @@ from thenoise.dit.sdxl.sampling import (
     discrete_timesteps,
     get_alphas_cumprod,
     get_sigmas,
+    rescale_zero_terminal_snr_alphas_cumprod,
     sigmas_for_timesteps,
 )
 from thenoise.dit.sdxl.text import OpenClipTextTransformer
@@ -126,9 +127,11 @@ class SdxlModel(DiffusionModel):
         Mirrors ComfyUI's ``SDXL.model_type``, which reads marker tensors from the
         state dict rather than the (identical) UNet architecture:
         ``edm_mean``/``edm_std`` -> EDM, ``edm_vpred.*`` -> continuous
-        V_PREDICTION_EDM, ``v_pred`` -> v-prediction (``ztsnr`` -> zsnr variant),
-        otherwise epsilon. Continuous-EDM and zsnr variants are detected but not
-        yet supported, so they raise a clear error instead of rendering wrong.
+        V_PREDICTION_EDM, ``v_pred`` -> v-prediction, otherwise epsilon. The
+        ``ztsnr`` marker selects a zero-terminal-SNR schedule (see
+        :meth:`zsnr_from_keys`) on top of whatever prediction type; it is no
+        longer rejected. Continuous-EDM variants are detected but not yet
+        supported, so they raise a clear error instead of rendering wrong.
         """
         keys = set(normalize_keys(keys))
         if "edm_mean" in keys and "edm_std" in keys:
@@ -142,13 +145,13 @@ class SdxlModel(DiffusionModel):
                 "does not support yet"
             )
         if "v_pred" in keys:
-            if "ztsnr" in keys:
-                raise NotImplementedError(
-                    "SDXL checkpoint uses zsnr v-prediction, which thenoise does "
-                    "not support yet"
-                )
             return SdxlModel.PREDICTION_V_PREDICTION
         return SdxlModel.PREDICTION_EPSILON
+
+    @staticmethod
+    def zsnr_from_keys(keys) -> bool:
+        """True if the checkpoint carries the ``ztsnr`` zero-terminal-SNR marker."""
+        return "ztsnr" in set(normalize_keys(keys))
 
     def __init__(
         self,
@@ -170,17 +173,22 @@ class SdxlModel(DiffusionModel):
             logger.info("Loading combined SDXL checkpoint %s", config.checkpoint_path)
             ckpt = SDXLCheckpoint(config.checkpoint_path, device=config.device, dtype=config.dtype)
             self.dit, self.clip_l, self.clip_g, self.vae = ckpt.load_components()
-            # Prediction type is autodetected from the checkpoint's marker keys.
+            # Prediction type / zsnr are autodetected from the checkpoint's marker
+            # keys; a ``--sd-zsnr`` flag overrides/forces zsnr for models whose
+            # marker was stripped.
             self.prediction_type = self.prediction_type_from_keys(ckpt.keys)
+            self.zsnr = self.zsnr_from_keys(ckpt.keys) or config.sd_zsnr
             self.tokenizer = load_sdxl_tokenizer()  # vendored config
         else:
             logger.info("Loading SDXL UNet from %s", config.dit_path)
             self.dit = load_sdxl_dit(config.dit_path, device=config.device, dtype=config.dtype)
             # Prediction type (epsilon / v-prediction) is autodetected from marker
-            # tensors in the checkpoint, not the UNet architecture.
-            self.prediction_type = self.prediction_type_from_keys(
-                self._read_dit_keys(config.dit_path)
-            )
+            # tensors in the checkpoint, not the UNet architecture. The zsnr
+            # schedule is likewise autodetected from the ``ztsnr`` marker or forced
+            # by the ``--sd-zsnr`` flag.
+            keys = self._read_dit_keys(config.dit_path)
+            self.prediction_type = self.prediction_type_from_keys(keys)
+            self.zsnr = self.zsnr_from_keys(keys) or config.sd_zsnr
 
             logger.info(
                 "Loading SDXL text encoders (CLIP-L + CLIP-G) from %s",
@@ -206,7 +214,12 @@ class SdxlModel(DiffusionModel):
         # ComfyUI's EPS ``calculate_input`` scales the UNet input by
         # ``1/sqrt(sigma^2 + 1)`` (see ``BaseModel._apply_model``); without it
         # the noisiest input is ~sigma_max (~26) too large and denoise collapses.
+        # zsnr checkpoints (or ``--sd-zsnr``) use a zero-terminal-SNR-rescaled grid.
         self._alphas_cumprod = get_alphas_cumprod(device=self.device)
+        if self.zsnr:
+            self._alphas_cumprod = rescale_zero_terminal_snr_alphas_cumprod(
+                self._alphas_cumprod
+            )
 
         # Per-step cached ADM vector (pooled text + size embedding), built in
         # ``prepare_latent`` from the request's ``Conditioning``.
@@ -311,7 +324,7 @@ class SdxlModel(DiffusionModel):
     ) -> torch.Tensor:
         # Scale the initial noise by the scheduler's max sigma (ComfyUI's flow
         # euler for the discrete SDXL EPS model: init = noise * sigma_max).
-        sigmas = get_sigmas(params.steps)
+        sigmas = get_sigmas(params.steps, self._alphas_cumprod)
         scaled = latents * sigmas[0]
 
         self._set_adm(cond, params.height, params.width)
@@ -354,7 +367,9 @@ class SdxlModel(DiffusionModel):
         dev = torch.device(self.device)
         steps = params.steps
         ts = discrete_timesteps(steps)  # noise -> clean
-        sigmas = sigmas_for_timesteps(ts)  # noise -> clean, trailing 0
+        sigmas = sigmas_for_timesteps(
+            ts, self._alphas_cumprod
+        )  # noise -> clean, trailing 0
         return [
             Step(
                 t=torch.tensor(float(ts[i]), device=dev, dtype=torch.float32),

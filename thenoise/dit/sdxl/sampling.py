@@ -30,6 +30,29 @@ def get_alphas_cumprod(device=None, dtype=torch.float64) -> torch.Tensor:
     return torch.cumprod(alphas, dim=0).to(device)
 
 
+def rescale_zero_terminal_snr_alphas_cumprod(
+    alphas_cumprod: torch.Tensor,
+) -> torch.Tensor:
+    """Zero-terminal-SNR rescaling of an ``alphas_cumprod`` grid (ComfyUI zsnr).
+
+    Some anime SDXL checkpoints (e.g. noobai) are trained with a zero-terminal-SNR
+    schedule: the noisiest timestep is shifted so the final ``alphas_cumprod``
+    lands near zero instead of ``~1e-4``. Sampling such a model on the plain
+    linear schedule produces garbage regardless of CFG/steps. Mirrors ComfyUI's
+    ``rescale_zero_terminal_snr_sigmas`` (``model_sampling.py``) but operates on
+    the ``alphas_cumprod`` grid directly, which ``sigma``/``_sigma_at`` consume.
+    """
+    sqrt_abar = alphas_cumprod.sqrt()
+    sqrt_abar_0 = sqrt_abar[0].clone()
+    sqrt_abar_T = sqrt_abar[-1].clone()
+    # Shift so the last timestep is zero, then scale the first back to its old value.
+    sqrt_abar = sqrt_abar - sqrt_abar_T
+    sqrt_abar = sqrt_abar * sqrt_abar_0 / (sqrt_abar_0 - sqrt_abar_T)
+    abar = sqrt_abar**2
+    abar[-1] = 4.8973451890853435e-08
+    return abar
+
+
 def sigma(t: int, alphas_cumprod: torch.Tensor = None) -> float:
     """Noise level at discrete timestep ``t`` (0 = clean, 999 = noisy).
 
@@ -47,16 +70,18 @@ def discrete_timesteps(steps: int) -> list[int]:
     return timesteps[::-1].tolist()
 
 
-def sigmas_for_timesteps(ts: list[int]) -> list[float]:
+def sigmas_for_timesteps(ts: list[int], alphas_cumprod=None) -> list[float]:
     """Sigma grid (noise->clean, trailing 0) for a timestep-index list.
 
     Computes the ``alphas_cumprod`` table once and reuses it across all steps,
-    avoiding a fresh 1000-element cumprod per step.
+    avoiding a fresh 1000-element cumprod per step. ``alphas_cumprod`` may be a
+    precomputed grid (e.g. a zsnr-rescaled one) for callers that walk several
+    timesteps.
     """
-    abar = get_alphas_cumprod()
+    abar = alphas_cumprod if alphas_cumprod is not None else get_alphas_cumprod()
     return [sigma(t, abar) for t in ts] + [0.0]
 
 
-def get_sigmas(steps: int) -> list[float]:
+def get_sigmas(steps: int, alphas_cumprod=None) -> list[float]:
     """Sigma grid, noise->clean, with a trailing 0 (mirrors diffusers Euler)."""
-    return sigmas_for_timesteps(discrete_timesteps(steps))
+    return sigmas_for_timesteps(discrete_timesteps(steps), alphas_cumprod)

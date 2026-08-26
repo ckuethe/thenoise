@@ -30,6 +30,11 @@ def _add_model_paths(p: argparse.ArgumentParser) -> None:
     p.add_argument("--lora-dir", default="", metavar="PATH",
                    help="directory containing LoRA .safetensors files "
                         "(subdirectories allowed)")
+    p.add_argument("--sd-zsnr", action="store_true",
+                   help="force the zero-terminal-SNR (zsnr) schedule for an "
+                        "SDXL/Illustrious checkpoint; auto-enabled when the "
+                        "checkpoint carries the ztsnr marker, this flag is for "
+                        "models whose marker was stripped")
 
 
 def resolve_model_paths(args) -> dict:
@@ -44,7 +49,8 @@ def resolve_model_paths(args) -> dict:
             raise SystemExit(
                 "--checkpoint cannot be combined with --dit/--vae/--text-encoder"
             )
-        return {"checkpoint_path": args.checkpoint, "lora_dir": args.lora_dir}
+        return {"checkpoint_path": args.checkpoint, "lora_dir": args.lora_dir,
+                "sd_zsnr": args.sd_zsnr}
     missing = [n for n, v in (("--dit", args.dit), ("--vae", args.vae),
                               ("--text-encoder", args.text_encoder)) if not v]
     if missing:
@@ -57,6 +63,7 @@ def resolve_model_paths(args) -> dict:
         "vae_path": args.vae,
         "text_encoder_path": args.text_encoder,
         "lora_dir": args.lora_dir,
+        "sd_zsnr": args.sd_zsnr,
     }
 
 

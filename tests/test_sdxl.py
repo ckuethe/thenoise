@@ -44,6 +44,33 @@ def test_alphas_cumprod_bounds():
     assert abar[-1] < 0.05       # heavily noised
 
 
+def test_zsnr_rescale_shifts_terminal_to_zero():
+    from thenoise.dit.sdxl.sampling import rescale_zero_terminal_snr_alphas_cumprod
+
+    abar = get_alphas_cumprod()
+    z = rescale_zero_terminal_snr_alphas_cumprod(abar)
+    assert z.shape == (1000,)
+    # terminal timestep shifted toward zero-SNR (much smaller abar[-1]).
+    assert z[-1] < 1e-4 < abar[-1]
+    # first timestep kept near the original clean value.
+    assert abs(z[0] - abar[0]) < 1e-4
+    # still a valid descending-abar grid.
+    assert (z[:-1] > z[1:]).all()
+
+
+def test_zsnr_schedule_differs_from_plain():
+    from thenoise.dit.sdxl.sampling import rescale_zero_terminal_snr_alphas_cumprod
+
+    abar = get_alphas_cumprod()
+    z = rescale_zero_terminal_snr_alphas_cumprod(abar)
+
+    def sig(abar, t):
+        return ((1 - abar[t]) / abar[t]) ** 0.5
+
+    # sigma at the noisiest step is much larger under zsnr.
+    assert sig(z, 999) > sig(abar, 999)
+
+
 def test_sdxl_defaults():
     assert SdxlModel.DEFAULT_STEPS == 28
     assert SdxlModel.DEFAULT_GUIDANCE_SCALE == 5.5
@@ -172,9 +199,15 @@ def test_prediction_type_vpred_edm_raises():
         SdxlModel.prediction_type_from_keys(["edm_vpred.sigma_max"])
 
 
-def test_prediction_type_zsnr_raises():
-    with pytest.raises(NotImplementedError):
-        SdxlModel.prediction_type_from_keys(["v_pred", "ztsnr"])
+def test_prediction_type_zsnr_is_v_prediction():
+    # A zsnr checkpoint is still v-prediction; zsnr only changes the schedule.
+    keys = ["input_blocks.0.0.weight", "v_pred", "ztsnr"]
+    assert SdxlModel.prediction_type_from_keys(keys) == "v_prediction"
+    assert SdxlModel.zsnr_from_keys(keys) is True
+
+
+def test_zsnr_from_keys_absent():
+    assert SdxlModel.zsnr_from_keys(["input_blocks.0.0.weight", "v_pred"]) is False
 
 
 class _FakeDit:
