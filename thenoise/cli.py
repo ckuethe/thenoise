@@ -14,6 +14,7 @@ passed on the command line (there is no config file).
 from __future__ import annotations
 
 import argparse
+from typing import Optional
 
 
 def _add_model_paths(p: argparse.ArgumentParser) -> None:
@@ -35,6 +36,23 @@ def _add_model_paths(p: argparse.ArgumentParser) -> None:
                         "SDXL/Illustrious checkpoint; auto-enabled when the "
                         "checkpoint carries the ztsnr marker, this flag is for "
                         "models whose marker was stripped")
+    p.add_argument("--no-sd-zsnr", action="store_true",
+                   help="disable the zsnr schedule even when the checkpoint "
+                        "carries the ztsnr marker (overrides --sd-zsnr)")
+
+
+def _resolve_sd_zsnr(args) -> Optional[bool]:
+    """Tri-state zsnr override: None = auto-detect, True = force on, False = off.
+
+    ``--no-sd-zsnr`` wins over ``--sd-zsnr`` so a marker-bearing checkpoint can
+    be forced onto the plain linear schedule for debugging (e.g. isolating a
+    zsnr vs v-prediction bug in a NoobAI checkpoint).
+    """
+    if args.no_sd_zsnr:
+        return False
+    if args.sd_zsnr:
+        return True
+    return None
 
 
 def resolve_model_paths(args) -> dict:
@@ -50,7 +68,7 @@ def resolve_model_paths(args) -> dict:
                 "--checkpoint cannot be combined with --dit/--vae/--text-encoder"
             )
         return {"checkpoint_path": args.checkpoint, "lora_dir": args.lora_dir,
-                "sd_zsnr": args.sd_zsnr}
+                "sd_zsnr": _resolve_sd_zsnr(args)}
     missing = [n for n, v in (("--dit", args.dit), ("--vae", args.vae),
                               ("--text-encoder", args.text_encoder)) if not v]
     if missing:
@@ -63,7 +81,7 @@ def resolve_model_paths(args) -> dict:
         "vae_path": args.vae,
         "text_encoder_path": args.text_encoder,
         "lora_dir": args.lora_dir,
-        "sd_zsnr": args.sd_zsnr,
+        "sd_zsnr": _resolve_sd_zsnr(args),
     }
 
 

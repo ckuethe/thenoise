@@ -46,7 +46,7 @@ class ModelPaths:
     text_encoder_path: str = ""
     lora_dir: str = ""
     checkpoint_path: str = ""  # single combined SDXL checkpoint (alternative to the trio)
-    sd_zsnr: bool = False  # force zero-terminal-SNR schedule (SDXL)
+    sd_zsnr: Optional[bool] = None  # SDXL zsnr: None=auto (ztsnr marker), True=force on, False=force off
 
 
 class NotLoadedError(RuntimeError):

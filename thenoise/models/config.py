@@ -36,7 +36,7 @@ class ModelConfig:
     dtype: torch.dtype = torch.bfloat16
     lora_dir: Optional[str] = None  # LoRAs mutate the DiT weights -> model concern
     checkpoint_path: Optional[str] = None  # single combined SDXL checkpoint (no split)
-    sd_zsnr: bool = False  # force zero-terminal-SNR schedule (SDXL; for stripped markers)
+    sd_zsnr: Optional[bool] = None  # SDXL zero-terminal-SNR: None=auto (ztsnr marker), True=force on, False=force off
 
 
 @dataclass

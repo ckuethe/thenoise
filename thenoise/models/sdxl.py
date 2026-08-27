@@ -153,6 +153,39 @@ class SdxlModel(DiffusionModel):
         """True if the checkpoint carries the ``ztsnr`` zero-terminal-SNR marker."""
         return "ztsnr" in set(normalize_keys(keys))
 
+    @staticmethod
+    def _resolve_zsnr(keys, override) -> bool:
+        """Resolve the effective zsnr flag from marker auto-detection + CLI override.
+
+        ``override`` is the tri-state ``sd_zsnr``: ``None`` (auto-detect from the
+        ``ztsnr`` marker), ``True`` (force on), or ``False`` (force off — lets a
+        marker-bearing checkpoint be sampled on the plain linear schedule for
+        debugging, e.g. NoobAI's misleading ``ztsnr`` marker).
+
+        When zsnr is auto-detected from the marker (no override), log the result
+        and how to override it, since some checkpoints carry a misleading
+        ``ztsnr`` marker (NoobAI vPred samples better on the plain schedule).
+        """
+        auto = SdxlModel.zsnr_from_keys(keys)
+        if override is None:
+            if auto:
+                logger.info(
+                    "This checkpoint has the zero-terminal-SNR (zsnr) marker, so "
+                    "the zsnr schedule is ON. If the generated image comes out "
+                    "garbled (for example a solid purple color), the marker may "
+                    "be misleading; retry with --no-sd-zsnr to turn zsnr off "
+                    "and use the normal schedule."
+                )
+            else:
+                logger.info(
+                    "This checkpoint does not carry the zero-terminal-SNR (zsnr) "
+                    "marker, so the normal schedule is used. If the generated "
+                    "image comes out garbled and you know this model was trained "
+                    "with zsnr, retry with --sd-zsnr to turn it on."
+                )
+            return auto
+        return override
+
     def __init__(
         self,
         *,
@@ -177,7 +210,7 @@ class SdxlModel(DiffusionModel):
             # keys; a ``--sd-zsnr`` flag overrides/forces zsnr for models whose
             # marker was stripped.
             self.prediction_type = self.prediction_type_from_keys(ckpt.keys)
-            self.zsnr = self.zsnr_from_keys(ckpt.keys) or config.sd_zsnr
+            self.zsnr = self._resolve_zsnr(ckpt.keys, config.sd_zsnr)
             self.tokenizer = load_sdxl_tokenizer()  # vendored config
         else:
             logger.info("Loading SDXL UNet from %s", config.dit_path)
@@ -188,7 +221,7 @@ class SdxlModel(DiffusionModel):
             # by the ``--sd-zsnr`` flag.
             keys = self._read_dit_keys(config.dit_path)
             self.prediction_type = self.prediction_type_from_keys(keys)
-            self.zsnr = self.zsnr_from_keys(keys) or config.sd_zsnr
+            self.zsnr = self._resolve_zsnr(keys, config.sd_zsnr)
 
             logger.info(
                 "Loading SDXL text encoders (CLIP-L + CLIP-G) from %s",
