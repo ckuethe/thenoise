@@ -175,9 +175,11 @@ def build_clip_l(sd, device="cpu", dtype=torch.bfloat16):
     config = CLIPTextConfig(**CLIP_L_CONFIG)
     with init_empty_weights():
         model = CLIPTextModel(config)
-    # transformers keeps ``position_ids`` as a non-persistent buffer, but the
-    # checkpoint carries it; drop it (transformers rebuilds arange(77) anyway).
-    sd = {k: v for k, v in sd.items() if k != "text_model.embeddings.position_ids"}
+    # transformers keeps ``position_ids`` as a non-persistent buffer, but merged
+    # checkpoints carry it; keep only keys the model actually has (transformers
+    # rebuilds arange(77) anyway).
+    expected = set(model.state_dict().keys())
+    sd = {k: v for k, v in sd.items() if k in expected}
     info = model.load_state_dict(sd, strict=True, assign=True)
     if info.unexpected_keys or info.missing_keys:
         raise RuntimeError(
@@ -210,6 +212,10 @@ def build_clip_g(sd, device="cpu", dtype=torch.bfloat16):
         vocab_size=cfg["vocab_size"],
         max_len=cfg["text_max_len"],
     )
+    # Merged checkpoints can carry stray buffers (e.g. ``position_ids``) not
+    # present in the OpenCLIP tower; keep only keys the model actually has.
+    expected = set(model.state_dict().keys())
+    sd = {k: v for k, v in sd.items() if k in expected}
     info = model.load_state_dict(sd, strict=True, assign=True)
     if info.unexpected_keys or info.missing_keys:
         raise RuntimeError(
