@@ -100,6 +100,12 @@ Anima is the smaller of the two original supported models (~5.4 GB total), so it
 is the quickest way to get a first image. See [Supported Models](#supported-models)
 for Krea 2 (larger, higher quality) and Z-Image-Turbo (distilled 8-step).
 
+There is also a `download_civitai.py` script which downloads from `civitai.com`.
+This script requires `CivitaPy` which is **not** installed by `thenoise.sh`. If
+`CivitaPy` is not installed, you will be prompted to install it with
+`uv pip install civitapy`. To download from Civitai, you will also need an API
+token, stored in the `CIVITAI_TOKEN` environment variable.
+
 ### 5. Generate an image
 
 ```bash
@@ -285,59 +291,27 @@ selectable via `--sampler er_sde`.
 
 ### SDXL
 
-Stable Diffusion XL (LDM UNet, CLIP-L + CLIP-G text encoders, SDXL VAE). Because
-the architecture is identical across all SDXL checkpoints, the same adapter loads
-vanilla SDXL and any SDXL fine-tune — anime models like Illustrious-XL, Juggernaut,
-etc. — automatically; the model type is detected from the `--dit` UNet keys.
+Stable Diffusion XL and its variants (Illustrious, Juggernaut, Pony, Noob ...)
+load with a single adapter; the model type is auto-detected from the checkpoint.
+The prediction type (epsilon vs v-prediction) is likewise autodetected from
+marker tensors in the checkpoint. SDXL uses the `euler` sampler only.
 
-SDXL is a discrete model. It supports the `euler` sampler; requesting `er_sde`
-(a stochastic flow-oriented solver) warns and silently falls back to `euler`,
-since er_sde produces poor output on SDXL.
-
-The prediction type (epsilon vs v-prediction) is autodetected from marker tensors
-in the checkpoint (`v_pred` -> v-prediction), so both standard SDXL and
-v-prediction fine-tunes (e.g. SDXL Turbo) load correctly. Continuous-EDM
-(Playground V2.5) and zsnr v-prediction variants are detected but rejected with a
-clear error until supported. The downloader preserves these marker tensors into
-the split `--dit` file; if you point at a pre-split checkpoint, re-split it so
-the markers are included.
-
-SDXL supports latent (refined) upscaling via the SesquiLSR SDXL upscaler
-(`upscaler_SDXL.safetensors`, committed bf16 in `thenoise/upscale/weights/`). If
-it is missing, fetch it with `scripts/download_sesqui_sdxl.py`. The `refined`
-2x latent upscale then runs directly; factor above 2x additionally needs a pixel
-upscaler (run `scripts/download_esrgan.py` and pass `--pixel-upscaler PATH`).
-
-Download (this fetches the Illustrious-XL v2.0 checkpoint, an SDXL anime
-fine-tune; point the same files at any other SDXL model if you prefer):
+**Single-file checkpoints.** Many SDXL mixes on Civitai ship as one combined
+`.safetensors`. Point `--checkpoint` straight at that file and thenoise
+loads the DiT, VAE, and text encoders from it in memory — no splitting needed:
 
 ```bash
-.venv/bin/python scripts/download_sdxl.py --out ./models/sdxl
-```
-
-This fetches the combined ~6.9 GB checkpoint and splits it into the DiT, VAE,
-and a combined `clip_l_g.safetensors` (both text encoders) plus the CLIP
-tokenizer under `models/sdxl/tokenizer/`.
-
-**Single-file checkpoints.** Many SDXL/Illustrious mixes on Civitai ship as one
-combined `.safetensors`. You can point `--checkpoint` straight at that file and
-thenoise loads the DiT, VAE, and text encoders from it in memory — no splitting
-needed:
-
-```bash
+.venv/bin/python scripts/download_civitai.py --profile sdxl
 ./thenoise.sh generate \
   --checkpoint ./models/mix.safetensors \
   --prompt "a fox walking in the snow" --steps 28 --guidance-scale 5.5 \
   --out /tmp/sdxl.png
 ```
 
-The prediction type is autodetected from the combined checkpoint's marker tensors
-(`v_pred` -> v-prediction), just as for split checkpoints. `--checkpoint` is
-mutually exclusive with `--dit`/`--vae`/`--text-encoder`.
-
-Generate from the split download:
+Or download and split into the DiT/VAE/text-encoder trio:
 
 ```bash
+.venv/bin/python scripts/download_sdxl.py --out ./models/sdxl
 ./thenoise.sh generate \
   --dit ./models/sdxl/split_files/diffusion_models/sdxl_unet.safetensors \
   --vae ./models/sdxl/split_files/vae/sdxl_vae.safetensors \
@@ -345,6 +319,13 @@ Generate from the split download:
   --prompt "a fox walking in the snow" --steps 28 --guidance-scale 5.5 \
   --out /tmp/sdxl.png
 ```
+
+`--checkpoint` is mutually exclusive with `--dit`/`--vae`/`--text-encoder`.
+
+Some SDXL fine-tunes (e.g. noobai) are trained with a zero-terminal-SNR schedule;
+pass `--sd-zsnr` if a checkpoint renders garbage. It is auto-enabled when the
+checkpoint carries the `ztsnr` marker. Some models have this flag incorrectly
+set, so it can be disabled with `--no-sd-zsnr`.
 
 ---
 
