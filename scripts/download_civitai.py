@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 #: without this prefix; :func:`parse_target` and the ``--preset`` resolver add it back.
 CIVITAI_MODELS = "https://civitai.com/models/"
 
-#: Curated ``--preset`` downloads. Each maps a short name to a dict whose keys
+#: Some download preset. Each maps a short name to a dict whose keys
 #: are the artifact kind:
 #:
 #:   - single-file kinds (``checkpoint``, ``lora``, ``upscaler``) hold one
@@ -68,50 +68,62 @@ CIVITAI_MODELS = "https://civitai.com/models/"
 #:   - a split model is described by ``dit``, ``vae`` and ``text-encoder``
 #:     paths, each a separate Civitai model.
 #:
-#: Add new curated models here; the argument-parser choices are derived from
-#: these keys.
+#: These were selected solely because of popularity on Civitai; if a lot of
+#: people report good results with these models they'll probably be good for
+#: getting started. You can, of course, use this script to download whatever
+#: other models you want.
 PRESETS: dict[str, dict[str, str]] = {
-    "anima": {"checkpoint": "2458426/anima?modelVersionId=3263843"},
+# SDXL (and derivative) AIO Checkpoints
+    "illustrious-base": {"checkpoint": "1369089/illustrious-xl-20?modelVersionId=1546777"},
+    "illustrious-wai": {"checkpoint": "827184/wai-illustrious-sdxl?modelVersionId=2883731"},
+    "illustrious-anime": {"checkpoint": "376130/nova-anime-xl?modelVersionId=2940478"},
+    "illustrious-3dcg": {"checkpoint": "715287/nova-3dcg-xl?modelVersionId=2744564"},
+    "illustrious-goddess": { "checkpoint": "1515023/illustrious-xl-20-goddessmix?modelVersionId=1733909" },
+    "illustrious-photo": { "checkpoint": "974693/realism-illustrious-by-stable-yogi?modelVersionId=2831979" },
+    "illustrious-bubbli": {"checkpoint": "1331249/bubbli-cartoon-il?modelVersionId=1503014"},
+    "sdxl-animagine": {"checkpoint": "260267/animagine-xl-v31?modelVersionId=403131 " },
+    "sdxl-base": {"checkpoint": "101055/sd-xl?modelVersionId=128078"},
+    "sdxl-cyberreal": {"checkpoint": "312530/cyberrealistic-xl?modelVersionId=2840768"},
+    "sdxl-epicreal": {"checkpoint": "277058/epicrealism-xl?modelVersionId=2514955" },
+    "sdxl-juggernaut": {"checkpoint": "133005/juggernaut-xl?modelVersionId=1759168"},
+    "sdxl-realviz": {"checkpoint": "139562/realvisxl-v50?modelVersionId=789646" },
+    "pony-animerge": {"checkpoint": "613147/animerge-pony-xl?modelVersionId=1762147"},
+    "pony-base": {"checkpoint": "257749/pony-diffusion-v6-xl?modelVersionId=290640"},
+    "pony-cyber": {"checkpoint": "443821/cyberrealistic-pony?modelVersionId=2884631"},
+    "pony-real": {"checkpoint": "372465/pony-realism?modelVersionId=914390"},
+    "pony-xl": {"checkpoint": "439889/prefect-pony-xl?modelVersionId=2114187"},
+    "noobai-nova": {"checkpoint": "376130/nova-anime-xl?modelVersionId=1500882"},
+    "noobai-obsession": {"checkpoint": "1318945/one-obsession?modelVersionId=2044887"},
+    "noobai-wai": {"checkpoint": "989367/wai-shuffle-noob?modelVersionId=2444683"},
+    "noobai-xl": {"checkpoint": "833294/noobai-xl-nai-xl?modelVersionId=1190596"},
+
+    # "zit-aio": {"checkpoint": "2259646/z-image-turbo-anime?modelVersionId=2543657"}, #not supported yet ;)
+# Regular 3-file models
+    "anima": {"dit": "2458426/anima?modelVersionId=3263843"},
     "anima-semireal": {
-        "checkpoint": "2668799/cyberrealistic-anima?modelVersionId=3136380"
+        "dit": "2668799/cyberrealistic-anima?modelVersionId=3136380"
     },
-    "anima-photo": {"checkpoint": "2645333/photanima?modelVersionId=3112450"},
-    "hyper-sd": {"lora": "800496/lightninghyper-8step"},
-    "esrgan": {"upscaler": "147817/realesrganx4plus"},
-    "remacri": {"upscaler": "147759/remacri"},
+    "anima-photo": {"dit": "2645333/photanima?modelVersionId=3112450"},
     "zimage": {
         "dit": "2342797/z-image-base?modelVersionId=2635223",
         "vae": "2740928/flux1-ae?modelVersionId=3082494",
         "text_encoder": "2742977/qwen3?modelVersionId=3085020",
     },
-    "zit": {"checkpoint": "2168935/z-image-turbo?modelVersionId=2442439"},
-    "zit-aio": {"checkpoint": "2259646/z-image-turbo-anime?modelVersionId=2543657"},
-    "zit-smol": {
-        "checkpoint": "2169712/z-image-turbo-quantized-for-low-vram?modelVersionId=2549032"
-    },
-    "krea2": {
-        "checkpoint": "2726029/krea-2-turbo-official-comfy-org-checkpoints-krea2?modelVersionId=3064584"
-    },
-    "krea2-int8": {
-        "checkpoint": "2726029/krea-2-turbo-official-comfy-org-checkpoints-krea2?modelVersionId=3091481"
-    },
-    "illustrious": {"checkpoint": "1369089/illustrious-xl-20?modelVersionId=1546777"},
-    "illustrious-anime": {"checkpoint": "376130/nova-anime-xl?modelVersionId=2940478"},
-    "illustrious-goddess": {
-        "checkpoint": "1515023/illustrious-xl-20-goddessmix?modelVersionId=1733909"
-    },
-    "illustrious-photo": {
-        "checkpoint": "974693/realism-illustrious-by-stable-yogi?modelVersionId=2831979"
-    },
-    "illustrious-xl": {"checkpoint": "https://civitai.com/models/795765/illustrious-xl"},
-    "noobai": {"checkpoint": "https://civitai.com/models/833294/noobai-xl-nai-xl"},
-    "sdxl": {"checkpoint": "101055/sd-xl?modelVersionId=128078"},
-    "sdxl-cyber": {"checkpoint": "312530/cyberrealistic-xl?modelVersionId=2840768"},
-    "sdxl-juggernaut": {"checkpoint": "133005/juggernaut-xl?modelVersionId=1759168"},
-    "klein4b": {"checkpoint": "2322332/flux2-klein?modelVersionId=2612557"},
-    "klein9b": {"checkpoint": "2322332/flux2-klein?modelVersionId=2612554"},
-    "klein4b-fp8": {"checkpoint": "2311742/flux-klein-fp8?modelVersionId=2600878"},
-    "klein9b-fp8": {"checkpoint": "2311742/flux-klein-fp8?modelVersionId=2606187"},
+    "zit": {"dit": "2168935/z-image-turbo?modelVersionId=2442439"},
+    "zit-smol": { "dit": "2169712/z-image-turbo-quantized-for-low-vram?modelVersionId=2549032" },
+    "krea2": { "dit": "2726029/krea-2-turbo-official-comfy-org-checkpoints-krea2?modelVersionId=3064584" },
+    "krea2-int8": { "dit": "2726029/krea-2-turbo-official-comfy-org-checkpoints-krea2?modelVersionId=3091481" },
+
+    "klein4b": {"dit": "2322332/flux2-klein?modelVersionId=2612557"},
+    "klein9b": {"dit": "2322332/flux2-klein?modelVersionId=2612554"},
+    "klein4b-fp8": {"dit": "2311742/flux-klein-fp8?modelVersionId=2600878"},
+    "klein9b-fp8": {"dit": "2311742/flux-klein-fp8?modelVersionId=2606187"},
+# Extra stuff
+    "anima-turbo": {"lora": "2560840/anima-turbo-lora?modelVersionId=2979642"},
+    "hyper-sd": {"lora": "800496/lightninghyper-8step"},
+    "esrgan": {"upscaler": "147817/realesrganx4plus"},
+    "remacri": {"upscaler": "147759/remacri"},
+    "sdxl-vae": {"vae": "https://civitai.red/models/296576/sdxl-vae"},
 }
 
 
@@ -169,7 +181,7 @@ PREDICTION_MARKERS = frozenset(
 #: each one covers. Kept in this script (not derived from the model catalog);
 #: extend it when thenoise gains support for another base model.
 BASE_MODEL_CHOICES: dict[str, list[str]] = {
-    "illustrious": ["Illustrious", "SDXL 1.0", "NoobAI"],
+    "sdxl": ["Illustrious", "SDXL 1.0", "NoobAI", "Pony", "NoobAI"],
     "anima": ["Anima"],
     "zimage": ["ZImageTurbo", "Z-Image"],
     "flux-klein": ["Flux.2 Klein 4B", "Flux.2 Klein 9B", "Flux.2 Klein"],
