@@ -40,7 +40,7 @@ from thenoise.dit.sdxl.utils import (
 from thenoise.dit.sdxl.lora import convert_hyper_sd_lora, lora_uses_diffusers_unet_keys
 from thenoise.dit.sdxl.vae import AutoencoderKLSdxl, load_sdxl_vae
 from thenoise.models.base import Conditioning, DiffusionModel, Step, normalize_keys
-from thenoise.models.config import ModelConfig, SamplingParams
+from thenoise.models.config import EncodePromptArgs, ModelConfig, SamplingParams
 from thenoise.samplers.euler import EulerSampler
 from thenoise.utils.math import round_up
 
@@ -264,16 +264,13 @@ class SdxlModel(DiffusionModel):
     # ------------------------------------------------------------ kernels
     def encode_prompt(
         self,
-        prompt: str,
-        negative_prompt: str = "",
-        *,
-        guidance_scale: float,
+        args: EncodePromptArgs,
     ) -> Conditioning:
-        context, pooled = self._encode_prompt(prompt)
+        context, pooled = self._encode_prompt(args.prompt)
         null = None
         neg_pooled = None
-        if guidance_scale > 1.0:
-            neg_context, neg_pooled = self._encode_prompt(negative_prompt)
+        if args.guidance_scale > 1.0:
+            neg_context, neg_pooled = self._encode_prompt(args.negative_prompt)
             null = neg_context
         return Conditioning(cond=context, null=null, pooled=pooled, neg_pooled=neg_pooled)
 
