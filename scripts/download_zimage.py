@@ -36,11 +36,6 @@ from safetensors.torch import load_file, save_file
 
 COMFY_REPO = "Comfy-Org/z_image_turbo"
 
-#: Upstream fp32 Flux latent upscaler (MIT-licensed, SesquiLSR).
-SESQUI_FLUX_UPSCALER_URL = (
-    "https://github.com/LoganBooker/SesquiLSR/raw/main/models/upscaler_Flux.safetensors"
-)
-
 # Package weights dir the upscaler format registry reads from.
 UPSCALER_WEIGHTS_DIR = (
     Path(__file__).resolve().parents[1] / "thenoise" / "upscale" / "weights"
